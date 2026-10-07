@@ -27,6 +27,14 @@
 
 ## Project setup
 
+BlogHub authentication configuration and API examples are documented in [docs/AUTH.md](docs/AUTH.md). Set `JWT_SECRET` in `.env` before starting the application; `.env.example` lists the configuration fields.
+
+Category/tag permissions and EchoAPI examples are documented in [docs/TAXONOMY.md](docs/TAXONOMY.md).
+
+Blogs CRUD, drafts/publishing, permissions, and EchoAPI examples are documented in [docs/BLOGS.md](docs/BLOGS.md). Search and filter examples are in [docs/search.md](docs/search.md).
+
+Create the first admin using `npm run seed:admin`; see [docs/ADMIN.md](docs/ADMIN.md) for local credentials and login instructions.
+
 ```bash
 $ npm install
 ```
