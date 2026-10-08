@@ -40,6 +40,14 @@ export class CreateBlogDto {
     maxItems: 10,
     description: 'Unique tag UUIDs belonging to categoryId',
   })
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  })
   @ValidateIf((_object, value) => value !== undefined)
   @IsArray()
   @ArrayMaxSize(10)
@@ -50,8 +58,12 @@ export class CreateBlogDto {
   @ApiPropertyOptional({
     nullable: true,
     maxLength: 2048,
-    description: 'HTTP(S) image URL; null clears it',
+    description:
+      'HTTP(S) image URL; null clears it. Uploaded images use a server-generated /images URL.',
   })
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'null' ? null : value,
+  )
   @ValidateIf((_object, value) => value !== undefined && value !== null)
   @IsUrl({
     protocols: ['http', 'https'],

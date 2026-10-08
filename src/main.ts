@@ -5,8 +5,8 @@ import * as dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { frontendOrigins } from './auth/auth.config.js';
-// import { join } from 'path';
-// import * as express from 'express';
+import express from 'express';
+import { BLOG_IMAGE_DIRECTORY } from './blogs/blog-image.store.js';
 
 dotenv.config();
 
@@ -22,11 +22,14 @@ async function bootstrap() {
     }),
   );
 
-  // Serve images with proper headers
-  // app.use('/images', (req, res, next) => {
-  //   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'); // <— this fixes your error
-  //   next();
-  // }, express.static(join(process.cwd(), 'public/images')));
+  app.use(
+    '/images',
+    express.static(BLOG_IMAGE_DIRECTORY, {
+      dotfiles: 'deny',
+      index: false,
+      fallthrough: false,
+    }),
+  );
 
   const PORT = process.env.PORT ?? 5300;
   const HOST = process.env.HOST ?? 'localhost';
@@ -42,8 +45,6 @@ async function bootstrap() {
     app,
     SwaggerModule.createDocument(app, swaggerConfig),
   );
-
- 
 
   await app.listen(PORT, HOST);
   console.log(`NestJS App is running on http://${HOST}:${PORT}`);

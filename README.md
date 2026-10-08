@@ -31,9 +31,11 @@ BlogHub authentication configuration and API examples are documented in [docs/AU
 
 Category/tag permissions and EchoAPI examples are documented in [docs/TAXONOMY.md](docs/TAXONOMY.md).
 
-Blogs CRUD, drafts/publishing, permissions, and EchoAPI examples are documented in [docs/BLOGS.md](docs/BLOGS.md). Search and filter examples are in [docs/search.md](docs/search.md).
+Blogs CRUD, drafts/publishing, permissions, and EchoAPI examples are documented in [docs/BLOGS.md](docs/BLOGS.md). Search and filter examples are in [docs/search.md](docs/search.md). Blog image uploads are documented in [docs/IMAGES.md](docs/IMAGES.md).
 
 Create the first admin using `npm run seed:admin`; see [docs/ADMIN.md](docs/ADMIN.md) for local credentials and login instructions.
+
+Populate all tables with local demo data using `npm run seed`; see [docs/SEED.md](docs/SEED.md). The implementation is in `src/seed.ts`.
 
 ```bash
 $ npm install

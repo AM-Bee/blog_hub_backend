@@ -10,7 +10,7 @@ Visitors can read published blogs and shared categories/tags. Registered authors
 
 V1 includes email/password authentication with refresh sessions, blog CRUD, taxonomy, search/filter/pagination, migrations, tests, local setup, and API documentation. Keep `POST /auth/refresh` and per-session logout. Do not implement `POST /auth/logout-all`.
 
-Deployment, image uploads, comments, likes, email verification, password recovery, account deletion, profile editing, and admin user-management APIs are outside v1.
+Deployment, comments, likes, email verification, password recovery, account deletion, profile editing, and admin user-management APIs are outside v1.
 
 ## Milestone 1: Backend foundation
 
@@ -88,7 +88,7 @@ Acceptance: registration, login, refresh rotation, expiry, reuse detection, per-
 - New blogs default to draft. Authors can publish or return their blogs to draft. Public queries never expose drafts.
 - Generate a unique slug from the title on creation, with a suffix for collisions. Keep it stable after title changes.
 - Record the first publication time and preserve it through edits and republishing.
-- Store Markdown without rendering it. The frontend must sanitize rendered Markdown. Accept only HTTP(S) cover image URLs; the backend does not fetch or upload images.
+- Store Markdown without rendering it. The frontend must sanitize rendered Markdown. Accept HTTP(S) external cover URLs without fetching them, or one multipart JPEG/PNG/WebP image up to 5 MB. Multer receives the image, which is stored under `src/asset/images`; persist its server-generated `/images/<filename>` URL in `cover_image_url`. See `docs/IMAGES.md`.
 - Validate category/tag references and save blog changes plus tag relationships in one transaction.
 - Return public author ID and display name only; keep email private.
 

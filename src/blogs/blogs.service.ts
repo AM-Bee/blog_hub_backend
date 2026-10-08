@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Inject,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -29,6 +30,7 @@ import type { AuthUser } from '../auth/auth.service.js';
 import { UserRole } from '../users/entities/user.entity.js';
 import { validateDto } from '../common/validation.utils.js';
 import { taxonomySlug } from '../common/taxonomy.utils.js';
+import { BlogImageStore } from './blog-image.store.js';
 
 @Injectable()
 export class BlogsService {
@@ -36,42 +38,57 @@ export class BlogsService {
     @InjectRepository(BlogEntity)
     private readonly blogRepository: Repository<BlogEntity>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    @Inject(BlogImageStore)
+    private readonly images: BlogImageStore = new BlogImageStore(),
   ) {}
 
-  async create(input: CreateBlogDto, user: AuthUser): Promise<BlogResponseDto> {
+  async create(
+    input: CreateBlogDto,
+    user: AuthUser,
+    image?: Express.Multer.File,
+  ): Promise<BlogResponseDto> {
     this.assertWriter(user);
     const dto = await validateDto(input, CreateBlogDto);
-    const baseSlug = taxonomySlug(dto.title) || 'post';
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const slug = attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID()}`;
-      try {
-        const id = await this.dataSource.transaction(async (manager) => {
-          await this.checkCategoryAndTags(
-            manager,
-            dto.categoryId,
-            dto.tagIds ?? [],
-          );
-          const blog = manager.create(BlogEntity, {
-            authorId: user.id,
-            categoryId: dto.categoryId,
-            title: dto.title,
-            slug,
-            content: dto.content,
-            coverImageUrl: dto.coverImageUrl ?? null,
-            status: dto.status ?? BlogStatus.DRAFT,
-            publishedAt:
-              dto.status === BlogStatus.PUBLISHED ? new Date() : null,
+    this.assertImageInput(dto, image);
+    let imageUrl: string | undefined;
+    let committed = false;
+    try {
+      const baseSlug = taxonomySlug(dto.title) || 'post';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const slug = attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID()}`;
+        try {
+          const id = await this.dataSource.transaction(async (manager) => {
+            await this.checkCategoryAndTags(
+              manager,
+              dto.categoryId,
+              dto.tagIds ?? [],
+            );
+            if (image && !imageUrl) imageUrl = await this.images.save(image);
+            const blog = manager.create(BlogEntity, {
+              authorId: user.id,
+              categoryId: dto.categoryId,
+              title: dto.title,
+              slug,
+              content: dto.content,
+              coverImageUrl: imageUrl ?? dto.coverImageUrl ?? null,
+              status: dto.status ?? BlogStatus.DRAFT,
+              publishedAt:
+                dto.status === BlogStatus.PUBLISHED ? new Date() : null,
+            });
+            const saved = await manager.save(BlogEntity, blog);
+            await this.replaceTags(manager, saved.id, dto.tagIds ?? []);
+            return saved.id;
           });
-          const saved = await manager.save(BlogEntity, blog);
-          await this.replaceTags(manager, saved.id, dto.tagIds ?? []);
-          return saved.id;
-        });
-        return this.findDetail(id);
-      } catch (error) {
-        if (!this.isSlugConflict(error)) throw error;
+          committed = true;
+          return this.findDetail(id);
+        } catch (error) {
+          if (!this.isSlugConflict(error)) throw error;
+        }
       }
+      throw new ConflictException('Unable to generate a unique blog slug');
+    } finally {
+      if (imageUrl && !committed) await this.images.discard(imageUrl);
     }
-    throw new ConflictException('Unable to generate a unique blog slug');
   }
 
   async findAll(input: ListBlogsQueryDto): Promise<BlogPageResponseDto> {
@@ -129,46 +146,57 @@ export class BlogsService {
     id: string,
     input: UpdateBlogDto,
     user: AuthUser,
+    image?: Express.Multer.File,
   ): Promise<BlogResponseDto> {
     this.assertWriter(user);
     const dto = await validateDto(input, UpdateBlogDto);
-    if (!Object.values(dto).some((value) => value !== undefined))
+    this.assertImageInput(dto, image);
+    if (!image && !Object.values(dto).some((value) => value !== undefined))
       throw new BadRequestException('Provide at least one editable field');
-    await this.dataSource.transaction(async (manager) => {
-      const blog = await manager.findOne(BlogEntity, {
-        where: { id },
-        lock: { mode: 'pessimistic_write' },
+    let imageUrl: string | undefined;
+    let committed = false;
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        const blog = await manager.findOne(BlogEntity, {
+          where: { id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!blog) throw new NotFoundException('Blog not found');
+        this.assertOwnerOrAdmin(blog, user);
+        const categoryId = dto.categoryId ?? blog.categoryId;
+        const categoryChanged =
+          dto.categoryId !== undefined && dto.categoryId !== blog.categoryId;
+        let tagIds = dto.tagIds;
+        if (categoryChanged && tagIds === undefined) tagIds = [];
+        const currentLinks =
+          tagIds === undefined
+            ? await manager.find(BlogTagEntity, { where: { blogId: id } })
+            : [];
+        await this.checkCategoryAndTags(
+          manager,
+          categoryId,
+          tagIds ?? currentLinks.map((link) => link.tagId),
+        );
+        if (image) imageUrl = await this.images.save(image);
+        if (dto.title !== undefined) blog.title = dto.title;
+        if (dto.content !== undefined) blog.content = dto.content;
+        if (dto.coverImageUrl !== undefined)
+          blog.coverImageUrl = dto.coverImageUrl;
+        if (imageUrl) blog.coverImageUrl = imageUrl;
+        blog.categoryId = categoryId;
+        if (dto.status !== undefined) {
+          blog.status = dto.status;
+          if (dto.status === BlogStatus.PUBLISHED && !blog.publishedAt)
+            blog.publishedAt = new Date();
+        }
+        // Blog slugs remain stable on title edits, as specified in the blog plan.
+        await manager.save(BlogEntity, blog);
+        if (tagIds !== undefined) await this.replaceTags(manager, id, tagIds);
       });
-      if (!blog) throw new NotFoundException('Blog not found');
-      this.assertOwnerOrAdmin(blog, user);
-      const categoryId = dto.categoryId ?? blog.categoryId;
-      const categoryChanged =
-        dto.categoryId !== undefined && dto.categoryId !== blog.categoryId;
-      let tagIds = dto.tagIds;
-      if (categoryChanged && tagIds === undefined) tagIds = [];
-      const currentLinks =
-        tagIds === undefined
-          ? await manager.find(BlogTagEntity, { where: { blogId: id } })
-          : [];
-      await this.checkCategoryAndTags(
-        manager,
-        categoryId,
-        tagIds ?? currentLinks.map((link) => link.tagId),
-      );
-      if (dto.title !== undefined) blog.title = dto.title;
-      if (dto.content !== undefined) blog.content = dto.content;
-      if (dto.coverImageUrl !== undefined)
-        blog.coverImageUrl = dto.coverImageUrl;
-      blog.categoryId = categoryId;
-      if (dto.status !== undefined) {
-        blog.status = dto.status;
-        if (dto.status === BlogStatus.PUBLISHED && !blog.publishedAt)
-          blog.publishedAt = new Date();
-      }
-      // Blog slugs remain stable on title edits, as specified in the blog plan.
-      await manager.save(BlogEntity, blog);
-      if (tagIds !== undefined) await this.replaceTags(manager, id, tagIds);
-    });
+      committed = true;
+    } finally {
+      if (imageUrl && !committed) await this.images.discard(imageUrl);
+    }
     return this.findDetail(id);
   }
 
@@ -358,6 +386,16 @@ export class BlogsService {
       createdAt: blog.createdAt,
       updatedAt: blog.updatedAt,
     };
+  }
+
+  private assertImageInput(
+    dto: { coverImageUrl?: string | null },
+    image?: Express.Multer.File,
+  ): void {
+    if (image && dto.coverImageUrl !== undefined)
+      throw new BadRequestException(
+        'Send either image or coverImageUrl, not both',
+      );
   }
 
   private assertWriter(user: AuthUser): void {

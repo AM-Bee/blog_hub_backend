@@ -57,3 +57,7 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Uploaded blog images
+/src/asset/images/*
+!/src/asset/images/.gitkeep

@@ -5,6 +5,7 @@ import { BlogEntity } from './entities/blog.entity.js';
 import { BlogTagEntity } from './entities/blog-tag.entity.js';
 import { CategoryEntity } from '../categories/entities/category.entity.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
+import { BlogImageStore } from './blog-image.store.js';
 import { BlogsService } from './blogs.service.js';
 import { BlogsController } from './blogs.controller.js';
 
@@ -19,7 +20,7 @@ import { BlogsController } from './blogs.controller.js';
     ]),
   ],
   controllers: [BlogsController],
-  providers: [BlogsService],
+  providers: [BlogsService, BlogImageStore],
   exports: [BlogsService],
 })
 export class BlogsModule {}

@@ -18,6 +18,8 @@ Visitors can read published blogs. Authors can create blogs and edit/delete thei
 
 ## EchoAPI examples
 
+For uploading image files during create/update, see [IMAGES.md](IMAGES.md). JSON requests below remain supported.
+
 Log in as described in [AUTH.md](AUTH.md), then use these headers on protected requests:
 
 ```text
@@ -54,7 +56,7 @@ PATCH accepts any combination of the creation fields and requires at least one f
 
 - Titles are trimmed, nonblank, and at most 200 characters. Content is nonblank Markdown, at most 100,000 characters. It is stored without rendering; sanitize rendered Markdown in the frontend.
 - New posts require an existing category. Up to 10 distinct tag UUIDs are allowed, all under that category. Missing or cross-category tags return 400; missing categories return 404.
-- Cover URLs must use HTTP or HTTPS and be at most 2,048 characters. The API stores the URL without fetching the image.
+- Cover URLs must use HTTP or HTTPS and be at most 2,048 characters. The API stores externally supplied URLs without fetching them. Alternatively, upload a cover image using multipart form data; see [IMAGES.md](IMAGES.md).
 - Malformed UUIDs, empty updates, invalid fields, and attempts to set ownership/slug/timestamps return 400. Missing/expired authentication returns 401; forbidden actions return 403.
 - Blog changes and tag links are saved in a PostgreSQL transaction. Duplicate titles are allowed; a UUID suffix resolves slug collisions.
 

@@ -13,17 +13,24 @@ import {
   Req,
   UseGuards,
   ValidationPipe,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
   ApiCreatedResponse,
+  ApiConsumes,
+  ApiExtraModels,
+  getSchemaPath,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { blogImageUploadOptions } from './blog-image.store.js';
 import { BlogsService } from './blogs.service.js';
 import { CreateBlogDto } from './dto/create-blog.dto.js';
 import { UpdateBlogDto } from './dto/update-blog.dto.js';
@@ -50,6 +57,7 @@ const validation = (expectedType: new () => object) =>
   });
 
 @ApiTags('blogs')
+@ApiExtraModels(CreateBlogDto, UpdateBlogDto)
 @Controller()
 export class BlogsController {
   constructor(
@@ -128,13 +136,32 @@ export class BlogsController {
   @Roles(UserRole.AUTHOR, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a blog owned by the signed-in user' })
-  @ApiBody({ type: CreateBlogDto })
+  @UseInterceptors(FileInterceptor('image', blogImageUploadOptions))
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiBody({
+    schema: {
+      allOf: [
+        { $ref: getSchemaPath(CreateBlogDto) },
+        {
+          type: 'object',
+          properties: {
+            image: {
+              type: 'string',
+              format: 'binary',
+              description: 'Optional JPEG/PNG/WebP cover image, maximum 5 MB',
+            },
+          },
+        },
+      ],
+    },
+  })
   @ApiCreatedResponse({ type: BlogResponseDto })
   create(
     @Body(validation(CreateBlogDto)) dto: CreateBlogDto,
+    @UploadedFile() image: Express.Multer.File | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.blogsService.create(dto, request.user);
+    return this.blogsService.create(dto, request.user, image);
   }
 
   @Patch('blogs/:id')
@@ -144,14 +171,33 @@ export class BlogsController {
   @ApiOperation({
     summary: 'Edit or publish your blog, or any blog as an admin',
   })
-  @ApiBody({ type: UpdateBlogDto })
+  @UseInterceptors(FileInterceptor('image', blogImageUploadOptions))
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiBody({
+    schema: {
+      allOf: [
+        { $ref: getSchemaPath(UpdateBlogDto) },
+        {
+          type: 'object',
+          properties: {
+            image: {
+              type: 'string',
+              format: 'binary',
+              description: 'Optional JPEG/PNG/WebP cover image, maximum 5 MB',
+            },
+          },
+        },
+      ],
+    },
+  })
   @ApiOkResponse({ type: BlogResponseDto })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(validation(UpdateBlogDto)) dto: UpdateBlogDto,
+    @UploadedFile() image: Express.Multer.File | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.blogsService.update(id, dto, request.user);
+    return this.blogsService.update(id, dto, request.user, image);
   }
 
   @Delete('blogs/:id')
