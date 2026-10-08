@@ -7,7 +7,7 @@ POST http://localhost:5300/api/v1/blogs
 PATCH http://localhost:5300/api/v1/blogs/<blog-uuid>
 ```
 
-Both routes require `Authorization: Bearer <accessToken>`. Authors can update their own posts; admins can update any post. Existing JSON requests remain supported.
+Both routes require `Authorization: Bearer <accessToken>`. Authors and admins can update only their own posts. Existing JSON requests remain supported.
 
 ## EchoAPI
 

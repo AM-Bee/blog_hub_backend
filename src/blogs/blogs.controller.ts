@@ -169,7 +169,7 @@ export class BlogsController {
   @Roles(UserRole.AUTHOR, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Edit or publish your blog, or any blog as an admin',
+    summary: 'Edit or publish your own blog (authors and admins)',
   })
   @UseInterceptors(FileInterceptor('image', blogImageUploadOptions))
   @ApiConsumes('application/json', 'multipart/form-data')

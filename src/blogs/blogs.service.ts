@@ -162,7 +162,7 @@ export class BlogsService {
           lock: { mode: 'pessimistic_write' },
         });
         if (!blog) throw new NotFoundException('Blog not found');
-        this.assertOwnerOrAdmin(blog, user);
+        this.assertOwner(blog, user);
         const categoryId = dto.categoryId ?? blog.categoryId;
         const categoryChanged =
           dto.categoryId !== undefined && dto.categoryId !== blog.categoryId;
@@ -405,6 +405,10 @@ export class BlogsService {
   private assertAdmin(user: AuthUser): void {
     if (user.role !== UserRole.ADMIN)
       throw new ForbiddenException('Admin access is required');
+  }
+  private assertOwner(blog: BlogEntity, user: AuthUser): void {
+    if (blog.authorId !== user.id)
+      throw new ForbiddenException('You can only edit your own blogs');
   }
   private assertOwnerOrAdmin(blog: BlogEntity, user: AuthUser): void {
     if (user.role !== UserRole.ADMIN && blog.authorId !== user.id)

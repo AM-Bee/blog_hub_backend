@@ -2,7 +2,7 @@
 
 All paths below are relative to `/api/v1`. Swagger is available at `/api/docs`.
 
-Visitors can read published blogs. Authors can create blogs and edit/delete their own posts. Admins can edit/delete any post and read all drafts. Ownership comes from the access token; requests cannot set an author, slug, or publication timestamp.
+Visitors can read published blogs. Authors can create blogs and edit/delete their own posts. Admins can edit only their own posts, but can delete any post and read all drafts. Ownership comes from the access token; requests cannot set an author, slug, or publication timestamp.
 
 | Method | Path               | Access                                            |
 | ------ | ------------------ | ------------------------------------------------- |
@@ -13,7 +13,7 @@ Visitors can read published blogs. Authors can create blogs and edit/delete thei
 | GET    | `/admin/blogs`     | Admin; all authors' posts                         |
 | GET    | `/admin/blogs/:id` | Admin; any post detail                            |
 | POST   | `/blogs`           | Author/admin; creates own post, returns 201       |
-| PATCH  | `/blogs/:id`       | Owner/admin; returns updated post                 |
+| PATCH  | `/blogs/:id`       | Owner only; returns updated post                  |
 | DELETE | `/blogs/:id`       | Owner/admin; permanent deletion, returns 204      |
 
 ## EchoAPI examples
@@ -60,7 +60,7 @@ PATCH accepts any combination of the creation fields and requires at least one f
 - Malformed UUIDs, empty updates, invalid fields, and attempts to set ownership/slug/timestamps return 400. Missing/expired authentication returns 401; forbidden actions return 403.
 - Blog changes and tag links are saved in a PostgreSQL transaction. Duplicate titles are allowed; a UUID suffix resolves slug collisions.
 
-Admin category deletion preserves posts using `ON DELETE SET NULL`. Responses then contain `categoryId: null`, `category: null`, and `categoryName: "Uncategorized"`. Category tags and their blog links cascade away. Authors/admins can still edit the post and later assign another category. Adding tags requires a category. Deleting a tag or blog removes its links without deleting unrelated posts or taxonomy entries.
+Admin category deletion preserves posts using `ON DELETE SET NULL`. Responses then contain `categoryId: null`, `category: null`, and `categoryName: "Uncategorized"`. Category tags and their blog links cascade away. The post owner can still edit the post and later assign another category. Adding tags requires a category. Deleting a tag or blog removes its links without deleting unrelated posts or taxonomy entries.
 
 ## Listing and responses
 

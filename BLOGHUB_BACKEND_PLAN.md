@@ -6,7 +6,7 @@ Status: implementation started module by module. Users and Auth are implemented.
 
 Build the core BlogHub backend using the existing NestJS, TypeScript, PostgreSQL, and TypeORM repository. Work through milestones at a steady pace; the original October 16 deadline no longer applies.
 
-Visitors can read published blogs and shared categories/tags. Registered authors can manage their own blogs and drafts, create categories/tags, and edit only categories/tags they created. Admins can moderate all blogs and edit/delete any category/tag. Authors cannot delete categories/tags. Taxonomy creation and editing need no approval.
+Visitors can read published blogs and shared categories/tags. Registered authors can manage their own blogs and drafts, create categories/tags, and edit only categories/tags they created. Admins can view/delete all blogs for moderation, edit only their own blogs, and edit/delete any category/tag. Authors cannot delete categories/tags. Taxonomy creation and editing need no approval.
 
 V1 includes email/password authentication with refresh sessions, blog CRUD, taxonomy, search/filter/pagination, migrations, tests, local setup, and API documentation. Keep `POST /auth/refresh` and per-session logout. Do not implement `POST /auth/logout-all`.
 
@@ -42,7 +42,7 @@ Use UUID primary keys and timestamps.
 | `tags`             | Parent category ID, display name, normalized name unique within the category, globally unique slug, creator ID, timestamps      |
 | `blog_tags`        | Blog/tag relationship with a unique pair                                                                                        |
 
-- New blogs require one category and support up to 10 tags belonging to it. After category deletion, the blog category is null and displayed as Uncategorized; authors/admins can reassign it.
+- New blogs require one category and support up to 10 tags belonging to it. After category deletion, the blog category is null and displayed as Uncategorized; the post owner can reassign it.
 - Index published listing order, author/category filters, tag relationships, and session lookup.
 - Public registration creates an author only. Provision the first admin through an explicit local command; registration cannot choose a role.
 - Implemented command: `npm run seed:admin`, configured through `ADMIN_EMAIL`, `ADMIN_DISPLAY_NAME`, and `ADMIN_PASSWORD` in local `.env`. It hashes passwords, preserves existing admins, and rejects author email conflicts rather than silently promoting them. See `docs/ADMIN.md`.
@@ -80,7 +80,7 @@ Acceptance: registration, login, refresh rotation, expiry, reuse detection, per-
 | GET    | `/me/blogs`        | Author's own blogs, including drafts                  |
 | GET    | `/me/blogs/:id`    | Owned blog detail for editing                         |
 | POST   | `/blogs`           | Author/admin creates a blog owned by the current user |
-| PATCH  | `/blogs/:id`       | Owner or admin edits/publishes a blog                 |
+| PATCH  | `/blogs/:id`       | Owner only edits/publishes a blog                     |
 | DELETE | `/blogs/:id`       | Owner or admin permanently deletes a blog             |
 | GET    | `/admin/blogs`     | Admin lists all blogs, including drafts               |
 | GET    | `/admin/blogs/:id` | Admin reads any blog for moderation                   |
