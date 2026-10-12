@@ -16,6 +16,7 @@ import { CategoryEntity } from '../categories/entities/category.entity.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
 import { CreateBlogDto } from './dto/create-blog.dto.js';
 import { UpdateBlogDto } from './dto/update-blog.dto.js';
+import { UpdateBlogStatusDto } from './dto/update-blog-status.dto.js';
 import {
   BlogPaginationQueryDto,
   ListBlogsQueryDto,
@@ -142,6 +143,28 @@ export class BlogsService {
     return this.findDetail(id);
   }
 
+  async updateStatusForAdmin(
+    id: string,
+    input: UpdateBlogStatusDto,
+    user: AuthUser,
+  ): Promise<BlogResponseDto> {
+    this.assertAdmin(user);
+    const dto = await validateDto(input, UpdateBlogStatusDto);
+    await this.dataSource.transaction(async (manager) => {
+      const blog = await manager.findOne(BlogEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!blog) throw new NotFoundException('Blog not found');
+      blog.status = dto.status;
+      blog.publicationBlocked = dto.status === BlogStatus.DRAFT;
+      if (dto.status === BlogStatus.PUBLISHED && !blog.publishedAt)
+        blog.publishedAt = new Date();
+      await manager.save(BlogEntity, blog);
+    });
+    return this.findDetail(id);
+  }
+
   async update(
     id: string,
     input: UpdateBlogDto,
@@ -163,6 +186,10 @@ export class BlogsService {
         });
         if (!blog) throw new NotFoundException('Blog not found');
         this.assertOwner(blog, user);
+        if (blog.publicationBlocked && dto.status === BlogStatus.PUBLISHED)
+          throw new ForbiddenException(
+            'This post was unpublished by an admin. Only an admin can publish it through the admin status route.',
+          );
         const categoryId = dto.categoryId ?? blog.categoryId;
         const categoryChanged =
           dto.categoryId !== undefined && dto.categoryId !== blog.categoryId;
@@ -382,6 +409,7 @@ export class BlogsService {
         ),
       coverImageUrl: blog.coverImageUrl,
       status: blog.status,
+      publicationBlocked: blog.publicationBlocked,
       publishedAt: blog.publishedAt,
       createdAt: blog.createdAt,
       updatedAt: blog.updatedAt,

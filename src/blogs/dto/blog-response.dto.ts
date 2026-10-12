@@ -27,6 +27,11 @@ export class BlogBaseResponseDto {
   @ApiProperty({ type: [BlogTagDto] }) tags: BlogTagDto[];
   @ApiProperty({ type: String, nullable: true }) coverImageUrl: string | null;
   @ApiProperty({ enum: BlogStatus }) status: BlogStatus;
+  @ApiProperty({
+    description:
+      'An admin has blocked publishing; only the admin status route can clear this flag',
+  })
+  publicationBlocked: boolean;
   @ApiProperty({ type: String, format: 'date-time', nullable: true })
   publishedAt: Date | null;
   @ApiProperty({ type: String, format: 'date-time' }) createdAt: Date;

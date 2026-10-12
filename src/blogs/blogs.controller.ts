@@ -34,6 +34,7 @@ import { blogImageUploadOptions } from './blog-image.store.js';
 import { BlogsService } from './blogs.service.js';
 import { CreateBlogDto } from './dto/create-blog.dto.js';
 import { UpdateBlogDto } from './dto/update-blog.dto.js';
+import { UpdateBlogStatusDto } from './dto/update-blog-status.dto.js';
 import {
   ListBlogsQueryDto,
   ManageBlogsQueryDto,
@@ -129,6 +130,23 @@ export class BlogsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.blogsService.findOneForAdmin(id, request.user);
+  }
+
+  @Patch('admin/blogs/:id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Publish any blog or unpublish it and block author publishing',
+  })
+  @ApiBody({ type: UpdateBlogStatusDto })
+  @ApiOkResponse({ type: BlogResponseDto })
+  updateStatusForAdmin(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(validation(UpdateBlogStatusDto)) dto: UpdateBlogStatusDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.blogsService.updateStatusForAdmin(id, dto, request.user);
   }
 
   @Post('blogs')

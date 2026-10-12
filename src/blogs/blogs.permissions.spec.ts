@@ -34,6 +34,7 @@ describe('Blog ownership permissions', () => {
       category: null,
       tagLinks: [],
       status: BlogStatus.DRAFT,
+      publicationBlocked: false,
       publishedAt: null,
       coverImageUrl: null,
       createdAt: new Date(),
@@ -124,5 +125,74 @@ describe('Blog ownership permissions', () => {
     expect((await service.findOneForAdmin(blog.id, admin)).id).toBe(blog.id);
     await service.remove(blog.id, admin);
     expect(manager.delete).toHaveBeenCalledWith(BlogEntity, blog.id);
+  });
+
+  it('lets admins block publication and publish again without editing content', async () => {
+    const admin = user(adminId, UserRole.ADMIN);
+    const result = await service.updateStatusForAdmin(
+      blog.id,
+      { status: BlogStatus.DRAFT },
+      admin,
+    );
+    expect(result.publicationBlocked).toBe(true);
+    expect(blog.title).toBe('Original');
+    expect(blog.content).toBe('Original content');
+    expect(
+      (
+        await service.updateStatusForAdmin(
+          blog.id,
+          { status: BlogStatus.PUBLISHED },
+          admin,
+        )
+      ).publicationBlocked,
+    ).toBe(false);
+  });
+
+  it('blocks owner publishing before any upload and preserves the block through edits', async () => {
+    blog.publicationBlocked = true;
+    const owner = user(ownerId, UserRole.AUTHOR);
+    await expect(
+      service.update(
+        blog.id,
+        { status: BlogStatus.PUBLISHED },
+        owner,
+        {} as Express.Multer.File,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(images.save).not.toHaveBeenCalled();
+    expect(manager.save).not.toHaveBeenCalled();
+    expect(
+      (await service.update(blog.id, { title: 'Fixed' }, owner))
+        .publicationBlocked,
+    ).toBe(true);
+    await service.update(blog.id, { status: BlogStatus.DRAFT }, owner);
+    await expect(
+      service.update(blog.id, { status: BlogStatus.PUBLISHED }, owner),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('denies author moderation and client attempts to clear the publication block', async () => {
+    const owner = user(ownerId, UserRole.AUTHOR);
+    await expect(
+      service.updateStatusForAdmin(
+        blog.id,
+        { status: BlogStatus.DRAFT },
+        owner,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.update(
+        blog.id,
+        { publicationBlocked: false } as unknown as UpdateBlogDto,
+        owner,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      service.updateStatusForAdmin(
+        blog.id,
+        { status: BlogStatus.PUBLISHED, title: 'Changed' } as never,
+        user(adminId, UserRole.ADMIN),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -2,19 +2,20 @@
 
 All paths below are relative to `/api/v1`. Swagger is available at `/api/docs`.
 
-Visitors can read published blogs. Authors can create blogs and edit/delete their own posts. Admins can edit only their own posts, but can delete any post and read all drafts. Ownership comes from the access token; requests cannot set an author, slug, or publication timestamp.
+Visitors can read published blogs. Authors can create blogs and edit/delete their own posts. Admins can edit only their own posts, but can delete any post, read all drafts, and publish/unpublish any post through the dedicated admin status route. Admin unpublishing blocks author publishing until an admin publishes the post again. Ownership comes from the access token; requests cannot set an author, slug, or publication timestamp.
 
-| Method | Path               | Access                                            |
-| ------ | ------------------ | ------------------------------------------------- |
-| GET    | `/blogs`           | Public published listing                          |
-| GET    | `/blogs/:slug`     | Public published detail; drafts return 404        |
-| GET    | `/me/blogs`        | Signed-in author's own drafts and published posts |
-| GET    | `/me/blogs/:id`    | Own post detail, including drafts                 |
-| GET    | `/admin/blogs`     | Admin; all authors' posts                         |
-| GET    | `/admin/blogs/:id` | Admin; any post detail                            |
-| POST   | `/blogs`           | Author/admin; creates own post, returns 201       |
-| PATCH  | `/blogs/:id`       | Owner only; returns updated post                  |
-| DELETE | `/blogs/:id`       | Owner/admin; permanent deletion, returns 204      |
+| Method | Path                      | Access                                                           |
+| ------ | ------------------------- | ---------------------------------------------------------------- |
+| GET    | `/blogs`                  | Public published listing                                         |
+| GET    | `/blogs/:slug`            | Public published detail; drafts return 404                       |
+| GET    | `/me/blogs`               | Signed-in author's own drafts and published posts                |
+| GET    | `/me/blogs/:id`           | Own post detail, including drafts                                |
+| GET    | `/admin/blogs`            | Admin; all authors' posts                                        |
+| GET    | `/admin/blogs/:id`        | Admin; any post detail                                           |
+| PATCH  | `/admin/blogs/:id/status` | Admin; publish any post or unpublish and block author publishing |
+| POST   | `/blogs`                  | Author/admin; creates own post, returns 201                      |
+| PATCH  | `/blogs/:id`              | Owner only; returns updated post                                 |
+| DELETE | `/blogs/:id`              | Owner/admin; permanent deletion, returns 204                     |
 
 ## EchoAPI examples
 
@@ -48,7 +49,7 @@ Publish an existing post with `PATCH http://localhost:5300/api/v1/blogs/<blog-uu
 { "status": "published" }
 ```
 
-Use `"status": "draft"` to unpublish. The first publication timestamp is preserved through edits and republishing. Blog slugs stay stable when titles change; category/tag slugs still regenerate when renamed.
+Use `"status": "draft"` to unpublish your own post. An ordinary owner draft can be republished, but an admin-unpublished post returns 403 when its author tries to publish it. See [BLOG_MODERATION.md](BLOG_MODERATION.md) for admin moderation and EchoAPI examples. The first publication timestamp is preserved through edits and republishing. Blog slugs stay stable when titles change; category/tag slugs still regenerate when renamed.
 
 PATCH accepts any combination of the creation fields and requires at least one field. Omitted fields remain unchanged. Set `coverImageUrl` to null to clear it, or `tagIds` to `[]` to remove all tags. When changing category, omitted tags are cleared; explicitly supplied tags must belong to the new category.
 
@@ -101,3 +102,5 @@ BLOGHUB_RUN_DB_TESTS=1 npx vitest run src/blogs/blogs.postgres.spec.ts
 ```
 
 It uses local `.env` database credentials to create a uniquely named temporary schema, runs checks only against tables in that schema, and removes it afterward. The database user needs permission to create a schema. Existing application tables are preserved. The suite checks draft privacy, ownership/admin permissions, publishing, slug collisions, pagination, atomic validation, category deletion preserving posts, combined search/filter matching, literal wildcard handling, and filtered pagination.
+
+Responses include `publicationBlocked`, defaulting to `false`. When `true`, only `PATCH /admin/blogs/:id/status` with `{"status":"published"}` can clear the block. This flag is read-only for clients.

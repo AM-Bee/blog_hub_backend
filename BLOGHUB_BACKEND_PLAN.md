@@ -6,7 +6,7 @@ Status: implementation started module by module. Users and Auth are implemented.
 
 Build the core BlogHub backend using the existing NestJS, TypeScript, PostgreSQL, and TypeORM repository. Work through milestones at a steady pace; the original October 16 deadline no longer applies.
 
-Visitors can read published blogs and shared categories/tags. Registered authors can manage their own blogs and drafts, create categories/tags, and edit only categories/tags they created. Admins can view/delete all blogs for moderation, edit only their own blogs, and edit/delete any category/tag. Authors cannot delete categories/tags. Taxonomy creation and editing need no approval.
+Visitors can read published blogs and shared categories/tags. Registered authors can manage their own blogs and drafts, create categories/tags, and edit only categories/tags they created. Admins can view/delete and publish/unpublish all blogs for moderation, edit content only on their own blogs, and edit/delete any category/tag. Authors cannot delete categories/tags. Taxonomy creation and editing need no approval.
 
 V1 includes email/password authentication with refresh sessions, blog CRUD, taxonomy, search/filter/pagination, migrations, tests, local setup, and API documentation. Keep `POST /auth/refresh` and per-session logout. Do not implement `POST /auth/logout-all`.
 
@@ -34,7 +34,7 @@ Use UUID primary keys and timestamps.
 
 | Table              | Main fields and relationships                                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `users`            | Unique normalized email, display name, password hash, author/admin role, active/disabled status                                                         |
+| `users`            | Unique normalized email, display name, password hash, author/admin role, active/disabled status                                 |
 | `refresh_sessions` | User, session identifier, expiry, revocation state                                                                              |
 | `refresh_tokens`   | Session, unique token hash, creation time, rotation/use timestamp; retained for reuse detection                                 |
 | `blogs`            | Author, category, title, unique slug, Markdown content, optional cover URL, draft/published status, first publication timestamp |
@@ -74,19 +74,20 @@ Acceptance: registration, login, refresh rotation, expiry, reuse detection, per-
 
 ### Blog endpoints
 
-| Method | Path               | Access and behavior                                   |
-| ------ | ------------------ | ----------------------------------------------------- |
-| GET    | `/blogs`           | Public published-blog listing                         |
-| GET    | `/blogs/:slug`     | Public published-blog detail                          |
-| GET    | `/me/blogs`        | Author's own blogs, including drafts                  |
-| GET    | `/me/blogs/:id`    | Owned blog detail for editing                         |
-| POST   | `/blogs`           | Author/admin creates a blog owned by the current user |
-| PATCH  | `/blogs/:id`       | Owner only edits/publishes a blog                     |
-| DELETE | `/blogs/:id`       | Owner or admin permanently deletes a blog             |
-| GET    | `/admin/blogs`     | Admin lists all blogs, including drafts               |
-| GET    | `/admin/blogs/:id` | Admin reads any blog for moderation                   |
+| Method | Path                      | Access and behavior                                         |
+| ------ | ------------------------- | ----------------------------------------------------------- |
+| GET    | `/blogs`                  | Public published-blog listing                               |
+| GET    | `/blogs/:slug`            | Public published-blog detail                                |
+| GET    | `/me/blogs`               | Author's own blogs, including drafts                        |
+| GET    | `/me/blogs/:id`           | Owned blog detail for editing                               |
+| POST   | `/blogs`                  | Author/admin creates a blog owned by the current user       |
+| PATCH  | `/blogs/:id`              | Owner only edits/publishes a blog                           |
+| DELETE | `/blogs/:id`              | Owner or admin permanently deletes a blog                   |
+| GET    | `/admin/blogs`            | Admin lists all blogs, including drafts                     |
+| GET    | `/admin/blogs/:id`        | Admin reads any blog for moderation                         |
+| PATCH  | `/admin/blogs/:id/status` | Admin publishes or unpublishes and blocks author publishing |
 
-- New blogs default to draft. Authors can publish or return their blogs to draft. Public queries never expose drafts.
+- New blogs default to draft. Authors can publish or return their blogs to draft unless publication is blocked by admin moderation. Public queries never expose drafts.
 - Generate a unique slug from the title on creation, with a suffix for collisions. Keep it stable after title changes.
 - Record the first publication time and preserve it through edits and republishing.
 - Store Markdown without rendering it. The frontend must sanitize rendered Markdown. Accept HTTP(S) external cover URLs without fetching them, or one multipart JPEG/PNG/WebP image up to 5 MB. Multer receives the image, which is stored under `src/asset/images`; persist its server-generated `/images/<filename>` URL in `cover_image_url`. See `docs/IMAGES.md`.
@@ -140,3 +141,7 @@ Acceptance: a fresh checkout can be set up from the README, checks pass, and the
 - Keep suitable installed dependencies. Add only packages needed for JWTs, DTO validation, Swagger, and rate limiting.
 - Retain PostgreSQL-backed refresh sessions; no Redis or background worker is required for v1.
 - Implement one milestone at a time, keeping API documentation and tests alongside each feature.
+
+## Blog publication moderation
+
+Implemented `PATCH /admin/blogs/:id/status` for admin-only publishing/unpublishing. Admin `draft` sets `publicationBlocked: true`; the author can edit but cannot publish. Admin `published` clears the block and publishes the post. Owner-created drafts remain publishable normally. The first publication time is retained. See `docs/BLOG_MODERATION.md`.

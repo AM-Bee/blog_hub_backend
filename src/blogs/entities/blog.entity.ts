@@ -68,6 +68,9 @@ export class BlogEntity {
   @Column({ type: 'enum', enum: BlogStatus, default: BlogStatus.DRAFT })
   status: BlogStatus;
 
+  @Column({ name: 'publication_blocked', type: 'boolean', default: false })
+  publicationBlocked: boolean;
+
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;
 
