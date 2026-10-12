@@ -12,7 +12,6 @@ import {
   Query,
   Req,
   UseGuards,
-  ValidationPipe,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -49,13 +48,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { UserRole } from '../users/entities/user.entity.js';
 
-const validation = (expectedType: new () => object) =>
-  new ValidationPipe({
-    transform: true,
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    expectedType,
-  });
+import { dtoValidationPipe } from '../common/validation.utils.js';
 
 @ApiTags('blogs')
 @ApiExtraModels(CreateBlogDto, UpdateBlogDto)
@@ -69,7 +62,9 @@ export class BlogsController {
   @ApiOperation({ summary: 'Search and filter published blogs' })
   @ApiQuery({ type: ListBlogsQueryDto })
   @ApiOkResponse({ type: BlogPageResponseDto })
-  findAll(@Query(validation(ListBlogsQueryDto)) query: ListBlogsQueryDto) {
+  findAll(
+    @Query(dtoValidationPipe(ListBlogsQueryDto)) query: ListBlogsQueryDto,
+  ) {
     return this.blogsService.findAll(query);
   }
 
@@ -87,7 +82,7 @@ export class BlogsController {
   @ApiOperation({ summary: 'List your own blogs and drafts' })
   @ApiOkResponse({ type: BlogPageResponseDto })
   findMine(
-    @Query(validation(ManageBlogsQueryDto)) query: ManageBlogsQueryDto,
+    @Query(dtoValidationPipe(ManageBlogsQueryDto)) query: ManageBlogsQueryDto,
     @Req() request: AuthenticatedRequest,
   ) {
     return this.blogsService.findMine(query, request.user);
@@ -113,7 +108,7 @@ export class BlogsController {
   @ApiOperation({ summary: 'List all blogs as an admin' })
   @ApiOkResponse({ type: BlogPageResponseDto })
   findAllForAdmin(
-    @Query(validation(ManageBlogsQueryDto)) query: ManageBlogsQueryDto,
+    @Query(dtoValidationPipe(ManageBlogsQueryDto)) query: ManageBlogsQueryDto,
     @Req() request: AuthenticatedRequest,
   ) {
     return this.blogsService.findAllForAdmin(query, request.user);
@@ -143,7 +138,7 @@ export class BlogsController {
   @ApiOkResponse({ type: BlogResponseDto })
   updateStatusForAdmin(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(validation(UpdateBlogStatusDto)) dto: UpdateBlogStatusDto,
+    @Body(dtoValidationPipe(UpdateBlogStatusDto)) dto: UpdateBlogStatusDto,
     @Req() request: AuthenticatedRequest,
   ) {
     return this.blogsService.updateStatusForAdmin(id, dto, request.user);
@@ -175,7 +170,7 @@ export class BlogsController {
   })
   @ApiCreatedResponse({ type: BlogResponseDto })
   create(
-    @Body(validation(CreateBlogDto)) dto: CreateBlogDto,
+    @Body(dtoValidationPipe(CreateBlogDto)) dto: CreateBlogDto,
     @UploadedFile() image: Express.Multer.File | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
@@ -211,7 +206,7 @@ export class BlogsController {
   @ApiOkResponse({ type: BlogResponseDto })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(validation(UpdateBlogDto)) dto: UpdateBlogDto,
+    @Body(dtoValidationPipe(UpdateBlogDto)) dto: UpdateBlogDto,
     @UploadedFile() image: Express.Multer.File | undefined,
     @Req() request: AuthenticatedRequest,
   ) {

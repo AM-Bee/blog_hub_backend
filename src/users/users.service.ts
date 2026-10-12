@@ -6,8 +6,6 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
 import { QueryFailedError } from 'typeorm';
 import type { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -24,17 +22,7 @@ export class UsersService {
   ) {}
 
   async create(createUserDto: CreateUserDto) {
-    // Also validate internal callers, including the future Auth service.
-    const dto = plainToInstance(CreateUserDto, createUserDto);
-    const errors = await validate(dto, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    });
-    if (errors.length) {
-      throw new BadRequestException(
-        errors.flatMap((error) => Object.values(error.constraints ?? {})),
-      );
-    }
+    const dto = await validateDto(createUserDto, CreateUserDto);
 
     const existing = await this.userRepository.findOneBy({ email: dto.email });
     if (existing) throw new ConflictException('Email already in use');
@@ -126,14 +114,5 @@ export class UsersService {
       throw error;
     }
     return this.findOne(id);
-  }
-
-  // Internal login lookup only. Never return this entity from a controller.
-  async findOneByEmail(email: string): Promise<UserEntity | null> {
-    return this.userRepository
-      .createQueryBuilder('user')
-      .addSelect('user.passwordHash')
-      .where('user.email = :email', { email: email.trim().toLowerCase() })
-      .getOne();
   }
 }

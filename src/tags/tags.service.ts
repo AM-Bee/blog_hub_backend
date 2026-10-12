@@ -15,11 +15,8 @@ import { UpdateTagDto } from './dto/update-tag.dto.js';
 import type { TagResponseDto } from './dto/tag-response.dto.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import { UserRole } from '../users/entities/user.entity.js';
-import {
-  taxonomySlug,
-  validateTaxonomyName,
-  validateTaxonomyInput,
-} from '../common/taxonomy.utils.js';
+import { taxonomySlug } from '../common/taxonomy.utils.js';
+import { validateDto } from '../common/validation.utils.js';
 
 @Injectable()
 export class TagsService {
@@ -35,7 +32,7 @@ export class TagsService {
     user: AuthUser,
   ): Promise<TagResponseDto> {
     this.assertWriter(user);
-    const dto = await validateTaxonomyInput(createTagDto, CreateTagDto);
+    const dto = await validateDto(createTagDto, CreateTagDto);
     const name = dto.name;
     const categoryId = dto.categoryId;
     if (!(await this.categoryRepository.existsBy({ id: categoryId })))
@@ -113,7 +110,7 @@ export class TagsService {
     if (user.role !== UserRole.ADMIN && tag.createdById !== user.id) {
       throw new ForbiddenException('You can only edit tags you created');
     }
-    const name = await validateTaxonomyName(updateTagDto, UpdateTagDto);
+    const { name } = await validateDto(updateTagDto, UpdateTagDto);
     const normalizedName = name.toLowerCase();
     const baseSlug = taxonomySlug(name);
     let slug = baseSlug;

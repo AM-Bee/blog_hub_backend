@@ -231,7 +231,7 @@ export class AuthService {
       if (!user || user.status !== UserStatus.ACTIVE) return null;
       const token = await manager.findOneBy(RefreshTokenEntity, {
         tokenHash: this.hash(refreshToken),
-        sessionId,
+        sessionId, 
       });
       if (!token) return null;
       if (token.usedAt) {

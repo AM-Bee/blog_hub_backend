@@ -1,3 +1,4 @@
+import { dtoValidationPipe } from '../common/validation.utils.js';
 import {
   Body,
   Controller,
@@ -13,7 +14,6 @@ import {
   Query,
   UseGuards,
   UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -51,14 +51,7 @@ export class TagsController {
     format: 'uuid',
   })
   findAll(
-    @Query(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: ListTagsQueryDto,
-      }),
-    )
+    @Query(dtoValidationPipe(ListTagsQueryDto))
     query: ListTagsQueryDto,
   ) {
     return this.tagsService.findAll(query.categoryId);
@@ -78,14 +71,7 @@ export class TagsController {
   @ApiOperation({ summary: 'Create a tag as an author or admin' })
   @ApiBody({ type: CreateTagDto })
   @ApiCreatedResponse({ type: TagResponseDto })
-  @UsePipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      expectedType: CreateTagDto,
-    }),
-  )
+  @UsePipes(dtoValidationPipe(CreateTagDto))
   create(@Body() dto: CreateTagDto, @Req() request: AuthenticatedRequest) {
     return this.tagsService.create(dto, request.user);
   }
@@ -99,14 +85,7 @@ export class TagsController {
   @ApiOkResponse({ type: TagResponseDto })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: UpdateTagDto,
-      }),
-    )
+    @Body(dtoValidationPipe(UpdateTagDto))
     dto: UpdateTagDto,
     @Req() request: AuthenticatedRequest,
   ) {

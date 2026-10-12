@@ -1,3 +1,4 @@
+import { dtoValidationPipe } from '../common/validation.utils.js';
 import {
   Body,
   Controller,
@@ -12,7 +13,6 @@ import {
   Req,
   UseGuards,
   UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -62,14 +62,7 @@ export class CategoriesController {
   @ApiOperation({ summary: 'Create a category as an author or admin' })
   @ApiBody({ type: CreateCategoryDto })
   @ApiCreatedResponse({ type: CategoryResponseDto })
-  @UsePipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      expectedType: CreateCategoryDto,
-    }),
-  )
+  @UsePipes(dtoValidationPipe(CreateCategoryDto))
   create(@Body() dto: CreateCategoryDto, @Req() request: AuthenticatedRequest) {
     return this.categoriesService.create(dto, request.user);
   }
@@ -85,14 +78,7 @@ export class CategoriesController {
   @ApiOkResponse({ type: CategoryResponseDto })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: UpdateCategoryDto,
-      }),
-    )
+    @Body(dtoValidationPipe(UpdateCategoryDto))
     dto: UpdateCategoryDto,
     @Req() request: AuthenticatedRequest,
   ) {

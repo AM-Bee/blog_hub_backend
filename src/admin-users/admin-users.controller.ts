@@ -1,3 +1,4 @@
+import { dtoValidationPipe } from '../common/validation.utils.js';
 import {
   Body,
   Controller,
@@ -8,7 +9,6 @@ import {
   Patch,
   Query,
   UseGuards,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -43,14 +43,7 @@ export class AdminUsersController {
   @ApiOperation({ summary: 'List and search users as an admin' })
   @ApiOkResponse({ type: UserPageResponseDto })
   findAll(
-    @Query(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: ListUsersQueryDto,
-      }),
-    )
+    @Query(dtoValidationPipe(ListUsersQueryDto))
     query: ListUsersQueryDto,
   ) {
     return this.users.findAll(query);
@@ -69,14 +62,7 @@ export class AdminUsersController {
   @ApiOkResponse({ type: AdminUserResponseDto })
   updateStatus(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: UpdateUserStatusDto,
-      }),
-    )
+    @Body(dtoValidationPipe(UpdateUserStatusDto))
     dto: UpdateUserStatusDto,
   ) {
     return this.users.updateStatus(id, dto);

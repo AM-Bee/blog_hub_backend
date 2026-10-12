@@ -1,3 +1,4 @@
+import { dtoValidationPipe } from '../common/validation.utils.js';
 import {
   Body,
   Controller,
@@ -11,7 +12,6 @@ import {
   UnauthorizedException,
   UseGuards,
   UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -57,14 +57,7 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register an author account' })
   @ApiBody({ type: CreateUserDto })
-  @UsePipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      expectedType: CreateUserDto,
-    }),
-  )
+  @UsePipes(dtoValidationPipe(CreateUserDto))
   register(@Body() dto: CreateUserDto) {
     return this.authService.register(dto);
   }
@@ -81,14 +74,7 @@ export class AuthController {
     required: true,
     example: 'http://localhost:3000',
   })
-  @UsePipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      expectedType: LoginDto,
-    }),
-  )
+  @UsePipes(dtoValidationPipe(LoginDto))
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: Response,
@@ -167,14 +153,7 @@ export class AuthController {
   @ApiBody({ type: UpdateUserDto })
   @ApiOkResponse({ type: UserResponseDto })
   updateProfile(
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: UpdateUserDto,
-      }),
-    )
+    @Body(dtoValidationPipe(UpdateUserDto))
     dto: UpdateUserDto,
     @Req() request: AuthenticatedRequest,
   ) {
@@ -189,14 +168,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Change your password and sign out all sessions' })
   @ApiBody({ type: ChangePasswordDto })
   async changePassword(
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: ChangePasswordDto,
-      }),
-    )
+    @Body(dtoValidationPipe(ChangePasswordDto))
     dto: ChangePasswordDto,
     @Req() request: AuthenticatedRequest,
     @Res({ passthrough: true }) response: Response,
@@ -214,14 +186,7 @@ export class AuthController {
   })
   @ApiBody({ type: ForgotPasswordDto })
   forgotPassword(
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: ForgotPasswordDto,
-      }),
-    )
+    @Body(dtoValidationPipe(ForgotPasswordDto))
     dto: ForgotPasswordDto,
   ) {
     return this.authService.forgotPassword(dto);
@@ -236,14 +201,7 @@ export class AuthController {
   })
   @ApiBody({ type: ResetPasswordDto })
   async resetPassword(
-    @Body(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        expectedType: ResetPasswordDto,
-      }),
-    )
+    @Body(dtoValidationPipe(ResetPasswordDto))
     dto: ResetPasswordDto,
     @Res({ passthrough: true }) response: Response,
   ) {

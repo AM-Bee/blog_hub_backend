@@ -14,10 +14,8 @@ import { UpdateCategoryDto } from './dto/update-category.dto.js';
 import type { CategoryResponseDto } from './dto/category-response.dto.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import { UserRole } from '../users/entities/user.entity.js';
-import {
-  taxonomySlug,
-  validateTaxonomyName,
-} from '../common/taxonomy.utils.js';
+import { taxonomySlug } from '../common/taxonomy.utils.js';
+import { validateDto } from '../common/validation.utils.js';
 
 @Injectable()
 export class CategoriesService {
@@ -31,10 +29,7 @@ export class CategoriesService {
     user: AuthUser,
   ): Promise<CategoryResponseDto> {
     this.assertWriter(user);
-    const name = await validateTaxonomyName(
-      createCategoryDto,
-      CreateCategoryDto,
-    );
+    const { name } = await validateDto(createCategoryDto, CreateCategoryDto);
     const normalizedName = name.toLowerCase();
     const existing = await this.categoryRepository.findOneBy({
       normalizedName,
@@ -86,10 +81,7 @@ export class CategoriesService {
     if (user.role !== UserRole.ADMIN && category.createdById !== user.id) {
       throw new ForbiddenException('You can only edit categories you created');
     }
-    const name = await validateTaxonomyName(
-      updateCategoryDto,
-      UpdateCategoryDto,
-    );
+    const { name } = await validateDto(updateCategoryDto, UpdateCategoryDto);
     const normalizedName = name.toLowerCase();
     const baseSlug = taxonomySlug(name);
     let slug = baseSlug;
