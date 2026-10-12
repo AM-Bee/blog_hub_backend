@@ -16,13 +16,13 @@ The existing database setup still uses `synchronize: true`. Starting the applica
 
 ## API
 
-| Method | Path | Request / response |
-| --- | --- | --- |
-| POST | `/auth/register` | `{ displayName, email, password }`; creates an author and returns a success message (201) |
-| POST | `/auth/login` | `{ email, password }`; returns `{ accessToken, expiresIn: 900 }` and sets a refresh cookie (200) |
-| POST | `/auth/refresh` | No body; reads and rotates the refresh cookie, returns a new access token (200) |
-| POST | `/auth/logout` | No body; revokes only this session and clears the cookie (200) |
-| GET | `/auth/me` | Bearer access token; returns the private account profile without credentials (200) |
+| Method | Path             | Request / response                                                                                |
+| ------ | ---------------- | ------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/register` | `{ displayName, email, password }`; creates an author and returns a success message (201)         |
+| POST   | `/auth/login`    | `{ email, password }`; returns `{ accessToken, expiresIn: 3600 }` and sets a refresh cookie (200) |
+| POST   | `/auth/refresh`  | No body; reads and rotates the refresh cookie, returns a new access token (200)                   |
+| POST   | `/auth/logout`   | No body; revokes only this session and clears the cookie (200)                                    |
+| GET    | `/auth/me`       | Bearer access token; returns the private account profile without credentials (200)                |
 
 Login, refresh, and logout require an `Origin` header matching `FRONTEND_ORIGINS`, including when testing with Postman/curl. Register accepts no role or password hash. Invalid credentials, tokens, or expired sessions return 401. Disallowed/missing cookie-operation origins return 403. Rate limits return 429: 10 registration/login requests per IP per minute, and 60 requests per IP per minute for each other Auth endpoint.
 
@@ -30,13 +30,15 @@ For Swagger's browser-based "Try it out", also include the API origin in `FRONTE
 
 There is no `/auth/logout-all` endpoint. Login accepts existing author or admin accounts; admin provisioning remains a separate step.
 
+For self-service profile edits and password changes, see [ACCOUNT.md](ACCOUNT.md). For email verification during password recovery, see [FORGOT_PASSWORD.md](FORGOT_PASSWORD.md).
+
 ## Frontend use
 
 Use `credentials: 'include'` for login, refresh, and logout. CORS allows only the configured frontend origins and permits credentials. Keep `accessToken` in memory and send `Authorization: Bearer <accessToken>` for `/auth/me` and future protected routes.
 
 Refresh on page reload or after access-token expiry. Serialize refresh requests: refreshing twice with the same token is treated as reuse and revokes that session. Do not retry an old refresh token after a failed/lost rotation response; log in again.
 
-Access JWTs expire after 15 minutes. Sessions expire seven days after login; rotation does not extend this lifetime. Logout and refresh-token reuse revoke the session, invalidating its access JWTs as well. Multiple logins create independent sessions.
+Access JWTs expire after one hour. Sessions expire seven days after login; rotation does not extend this lifetime. Logout and refresh-token reuse revoke the session, invalidating its access JWTs as well. Multiple logins create independent sessions.
 
 The refresh cookie is HttpOnly, SameSite=Lax, scoped to `/api/v1/auth`, and Secure in production. Frontend/backend must be compatible same-site origins. Revisit this policy before selecting cross-site hosting.
 

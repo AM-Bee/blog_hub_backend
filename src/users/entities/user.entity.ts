@@ -27,6 +27,31 @@ export class UserEntity {
   @Column({ name: 'password_hash', type: 'varchar', length: 60, select: false })
   passwordHash: string;
 
+  @Column({
+    name: 'password_reset_code_hash',
+    type: 'varchar',
+    length: 60,
+    nullable: true,
+    select: false,
+  })
+  passwordResetCodeHash: string | null;
+
+  @Column({
+    name: 'password_reset_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+    select: false,
+  })
+  passwordResetExpiresAt: Date | null;
+
+  @Column({
+    name: 'password_reset_attempts',
+    type: 'int',
+    default: 0,
+    select: false,
+  })
+  passwordResetAttempts: number;
+
   @Column({ type: 'enum', enum: UserRole, default: UserRole.AUTHOR })
   role: UserRole;
 

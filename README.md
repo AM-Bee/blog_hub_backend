@@ -29,6 +29,8 @@
 
 BlogHub authentication configuration and API examples are documented in [docs/AUTH.md](docs/AUTH.md). Set `JWT_SECRET` in `.env` before starting the application; `.env.example` lists the configuration fields.
 
+Self-service profile editing and password changes are documented in [docs/ACCOUNT.md](docs/ACCOUNT.md).
+
 Category/tag permissions and EchoAPI examples are documented in [docs/TAXONOMY.md](docs/TAXONOMY.md).
 
 Blogs CRUD, drafts/publishing, permissions, and EchoAPI examples are documented in [docs/BLOGS.md](docs/BLOGS.md). Search and filter examples are in [docs/search.md](docs/search.md). Blog image uploads are documented in [docs/IMAGES.md](docs/IMAGES.md).
@@ -122,3 +124,5 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+Forgot-password email setup and EchoAPI testing: [docs/FORGOT_PASSWORD.md](docs/FORGOT_PASSWORD.md).

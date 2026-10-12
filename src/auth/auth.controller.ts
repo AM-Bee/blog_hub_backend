@@ -5,6 +5,7 @@ import {
   HttpCode,
   Inject,
   Post,
+  Patch,
   Req,
   Res,
   UnauthorizedException,
@@ -35,7 +36,12 @@ import { AccessTokenResponseDto } from './dto/access-token-response.dto.js';
 import { UserResponseDto } from '../users/dto/user-response.dto.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import type { AuthenticatedRequest } from './guards/jwt-auth.guard.js';
+import { UsersService } from '../users/users.service.js';
+import { UpdateUserDto } from '../users/dto/update-user.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { CookieOriginGuard } from './guards/cookie-origin.guard.js';
+import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
+import { ResetPasswordDto } from './dto/reset-password.dto.js';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -44,6 +50,7 @@ export class AuthController {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(AUTH_OPTIONS) private readonly options: AuthOptions,
+    @Inject(UsersService) private readonly usersService: UsersService,
   ) {}
 
   @Post('register')
@@ -151,6 +158,98 @@ export class AuthController {
   @ApiOkResponse({ type: UserResponseDto })
   me(@Req() request: AuthenticatedRequest) {
     return request.user;
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update your display name or email' })
+  @ApiBody({ type: UpdateUserDto })
+  @ApiOkResponse({ type: UserResponseDto })
+  updateProfile(
+    @Body(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        expectedType: UpdateUserDto,
+      }),
+    )
+    dto: UpdateUserDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.usersService.updateProfile(request.user.id, dto);
+  }
+
+  @Post('change-password')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change your password and sign out all sessions' })
+  @ApiBody({ type: ChangePasswordDto })
+  async changePassword(
+    @Body(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        expectedType: ChangePasswordDto,
+      }),
+    )
+    dto: ChangePasswordDto,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.authService.changePassword(request.user.id, dto);
+    response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
+    return result;
+  }
+
+  @Post('forgot-password')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Email a password reset code to the registered address',
+  })
+  @ApiBody({ type: ForgotPasswordDto })
+  forgotPassword(
+    @Body(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        expectedType: ForgotPasswordDto,
+      }),
+    )
+    dto: ForgotPasswordDto,
+  ) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Verify the emailed code, replace the password, and sign out all sessions',
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  async resetPassword(
+    @Body(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        expectedType: ResetPasswordDto,
+      }),
+    )
+    dto: ResetPasswordDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.authService.resetPassword(dto);
+    response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
+    return result;
   }
 
   private refreshCookie(request: Request): unknown {

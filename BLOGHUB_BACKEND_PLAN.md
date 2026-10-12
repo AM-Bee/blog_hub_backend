@@ -1,6 +1,6 @@
 # BlogHub backend plan
 
-Status: implementation started module by module. Users and Auth are implemented. Categories and Tags now provide public reads, author/admin creation, owner-or-admin editing, and admin-only deletion. Tags now belong to a required category, tag-name uniqueness is scoped to the category, admin category deletion cascades to its child tags, and category/tag slugs regenerate on rename. Blogs CRUD, drafts/publishing, ownership/admin moderation, pagination, and public search/category/tag/author filters are implemented. General database migrations are pending. Profile updates remain outside v1. See `docs/AUTH.md`, `docs/TAXONOMY.md`, and `docs/BLOGS.md` for configuration and API use.
+Status: implementation started module by module. Users and Auth are implemented. Categories and Tags now provide public reads, author/admin creation, owner-or-admin editing, and admin-only deletion. Tags now belong to a required category, tag-name uniqueness is scoped to the category, admin category deletion cascades to its child tags, and category/tag slugs regenerate on rename. Blogs CRUD, drafts/publishing, ownership/admin moderation, pagination, and public search/category/tag/author filters are implemented. General database migrations are pending. Self-service profile editing and password changes are implemented; forgot-password/reset uses an emailed verification code. See `docs/AUTH.md`, `docs/TAXONOMY.md`, and `docs/BLOGS.md` for configuration and API use.
 
 ## Goal and agreed scope
 
@@ -10,7 +10,7 @@ Visitors can read published blogs and shared categories/tags. Registered authors
 
 V1 includes email/password authentication with refresh sessions, blog CRUD, taxonomy, search/filter/pagination, migrations, tests, local setup, and API documentation. Keep `POST /auth/refresh` and per-session logout. Do not implement `POST /auth/logout-all`.
 
-Deployment, comments, likes, email verification, password recovery, account deletion, profile editing, and admin user-management APIs are outside v1.
+Deployment, comments, likes, registration email verification, account deletion, and admin user-management APIs are outside v1.
 
 ## Milestone 1: Backend foundation
 
@@ -58,7 +58,8 @@ Use UUID primary keys and timestamps.
 | GET    | `/auth/me`       | Return the authenticated user's safe account fields                                  |
 
 - Hash passwords with bcrypt. Normalize email before uniqueness checks.
-- Use 15-minute JWT access tokens through `Authorization: Bearer` and opaque refresh tokens with a seven-day absolute session lifetime.
+- `PATCH /auth/me` edits the signed-in account display name/email; email changes require the current password. `POST /auth/change-password` verifies the current password and revokes all of that user's sessions after changing it. See `docs/ACCOUNT.md`. Forgot-password/reset requires a six-digit email code; see `docs/FORGOT_PASSWORD.md`.
+- Use one-hour JWT access tokens through `Authorization: Bearer` and opaque refresh tokens with a seven-day absolute session lifetime.
 - Store only refresh-token hashes. The `refresh_sessions` table supports renewal, rotation/reuse detection, and current-session logout; it remains necessary without logout-all.
 - Rotate refresh tokens atomically. Retain enough information to identify reuse of a replaced token and revoke its session. The frontend must serialize refresh requests to avoid concurrent rotation.
 - Set the refresh token in an HttpOnly cookie scoped to `/api/v1/auth`, with `SameSite=Lax` locally and `Secure` over HTTPS. Validate frontend origins on cookie-authenticated mutation requests.

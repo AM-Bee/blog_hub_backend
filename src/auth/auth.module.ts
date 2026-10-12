@@ -11,6 +11,7 @@ import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { CookieOriginGuard } from './guards/cookie-origin.guard.js';
+import { PasswordResetMailService } from './password-reset-mail.service.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CookieOriginGuard } from './guards/cookie-origin.guard.js';
   providers: [
     { provide: AUTH_OPTIONS, useFactory: authOptions },
     AuthService,
+    PasswordResetMailService,
     JwtAuthGuard,
     RolesGuard,
     CookieOriginGuard,
