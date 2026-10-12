@@ -15,7 +15,7 @@ import { CategoriesService } from '../categories/categories.service.js';
 import { CreateTagDto } from './dto/create-tag.dto.js';
 import { UpdateTagDto } from './dto/update-tag.dto.js';
 import { ListTagsQueryDto } from './dto/list-tags-query.dto.js';
-import { UserRole } from '../users/entities/user.entity.js';
+import { UserRole, UserStatus } from '../users/entities/user.entity.js';
 
 describe('Tags belong to categories', () => {
   let service: TagsService;
@@ -24,6 +24,7 @@ describe('Tags belong to categories', () => {
     displayName: 'Author',
     email: 'author@example.com',
     role: UserRole.AUTHOR,
+    status: UserStatus.ACTIVE,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -188,6 +189,7 @@ describe('Category deletion with child tags', () => {
       displayName: 'Admin',
       email: 'admin@example.com',
       role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

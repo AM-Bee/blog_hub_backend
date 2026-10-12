@@ -15,7 +15,7 @@ import { CreateCategoryDto } from '../categories/dto/create-category.dto.js';
 import { TagsService } from '../tags/tags.service.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
 import { CreateTagDto } from '../tags/dto/create-tag.dto.js';
-import { UserRole } from '../users/entities/user.entity.js';
+import { UserRole, UserStatus } from '../users/entities/user.entity.js';
 import { normalizeTaxonomyName, taxonomySlug } from './taxonomy.utils.js';
 
 const resources = [
@@ -37,6 +37,7 @@ const author = {
   email: 'author@example.com',
   displayName: 'Author',
   role: UserRole.AUTHOR,
+  status: UserStatus.ACTIVE,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

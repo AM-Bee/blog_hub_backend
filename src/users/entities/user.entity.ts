@@ -12,6 +12,11 @@ export enum UserRole {
   ADMIN = 'admin',
 }
 
+export enum UserStatus {
+  ACTIVE = 'active',
+  DISABLED = 'disabled',
+}
+
 @Entity('users')
 @Index('UQ_users_email', ['email'], { unique: true })
 export class UserEntity {
@@ -54,6 +59,9 @@ export class UserEntity {
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.AUTHOR })
   role: UserRole;
+
+  @Column({ type: 'enum', enum: UserStatus, default: UserStatus.ACTIVE })
+  status: UserStatus;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

@@ -17,7 +17,7 @@ import type { CreateUserDto } from '../users/dto/create-user.dto.js';
 import type { LoginDto } from './dto/login.dto.js';
 import { RefreshSessionEntity } from './entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
-import { UserEntity } from '../users/entities/user.entity.js';
+import { UserEntity, UserStatus } from '../users/entities/user.entity.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { validateDto } from '../common/validation.utils.js';
 import { ACCESS_TOKEN_SECONDS, SESSION_MILLISECONDS } from './auth.config.js';
@@ -60,6 +60,7 @@ export class AuthService {
         .getOne();
       if (
         !user ||
+        user.status !== UserStatus.ACTIVE ||
         Buffer.byteLength(dto.password, 'utf8') > 72 ||
         !(await bcrypt.compare(dto.password, user.passwordHash))
       )
@@ -98,6 +99,7 @@ export class AuthService {
         .getOne();
       if (
         !user ||
+        user.status !== UserStatus.ACTIVE ||
         Buffer.byteLength(dto.currentPassword, 'utf8') > 72 ||
         !(await bcrypt.compare(dto.currentPassword, user.passwordHash))
       )
@@ -118,7 +120,7 @@ export class AuthService {
         .where('user.email = :email', { email: dto.email })
         .setLock('pessimistic_write')
         .getOne();
-      if (!user) return;
+      if (!user || user.status !== UserStatus.ACTIVE) return;
       // Limit mail to one request per minute per account, even across IP addresses.
       if (
         user.passwordResetExpiresAt &&
@@ -164,6 +166,7 @@ export class AuthService {
         .getOne();
       if (
         !user ||
+        user.status !== UserStatus.ACTIVE ||
         !user.passwordResetCodeHash ||
         !user.passwordResetExpiresAt ||
         user.passwordResetExpiresAt.getTime() <= Date.now() ||
@@ -224,6 +227,8 @@ export class AuthService {
         session.expiresAt.getTime() <= Date.now()
       )
         return null;
+      const user = await manager.findOneBy(UserEntity, { id: session.userId });
+      if (!user || user.status !== UserStatus.ACTIVE) return null;
       const token = await manager.findOneBy(RefreshTokenEntity, {
         tokenHash: this.hash(refreshToken),
         sessionId,
@@ -310,7 +315,10 @@ export class AuthService {
       throw new UnauthorizedException('Session is no longer active');
     }
     try {
-      return await this.usersService.findOne(payload.sub);
+      const user = await this.usersService.findOne(payload.sub);
+      if (user.status !== UserStatus.ACTIVE)
+        throw new UnauthorizedException('Account is disabled');
+      return user;
     } catch (error) {
       if (error instanceof NotFoundException)
         throw new UnauthorizedException('Account no longer exists');

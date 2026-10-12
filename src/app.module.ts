@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { CategoriesModule } from './categories/categories.module.js';
 import { TagsModule } from './tags/tags.module.js';
 import { BlogsModule } from './blogs/blogs.module.js';
+import { AdminUsersModule } from './admin-users/admin-users.module.js';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -29,6 +30,7 @@ dotenv.config();
     CategoriesModule,
     TagsModule,
     BlogsModule,
+    AdminUsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

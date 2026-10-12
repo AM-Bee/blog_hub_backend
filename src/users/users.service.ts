@@ -14,7 +14,7 @@ import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { validateDto } from '../common/validation.utils.js';
-import { UserEntity, UserRole } from './entities/user.entity.js';
+import { UserEntity, UserRole, UserStatus } from './entities/user.entity.js';
 
 @Injectable()
 export class UsersService {
@@ -45,6 +45,7 @@ export class UsersService {
       email: dto.email,
       passwordHash,
       role: UserRole.AUTHOR,
+      status: UserStatus.ACTIVE,
     });
 
     try {
@@ -75,6 +76,7 @@ export class UsersService {
       displayName: user.displayName,
       email: user.email,
       role: user.role,
+      status: user.status,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -94,6 +96,8 @@ export class UsersService {
           .setLock('pessimistic_write')
           .getOne();
         if (!user) throw new NotFoundException('User not found');
+        if (user.status !== UserStatus.ACTIVE)
+          throw new UnauthorizedException('Account is disabled');
         if (dto.email !== undefined && dto.email !== user.email) {
           if (
             !dto.currentPassword ||

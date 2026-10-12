@@ -1,6 +1,6 @@
 # BlogHub backend plan
 
-Status: implementation started module by module. Users and Auth are implemented. Categories and Tags now provide public reads, author/admin creation, owner-or-admin editing, and admin-only deletion. Tags now belong to a required category, tag-name uniqueness is scoped to the category, admin category deletion cascades to its child tags, and category/tag slugs regenerate on rename. Blogs CRUD, drafts/publishing, ownership/admin moderation, pagination, and public search/category/tag/author filters are implemented. General database migrations are pending. Self-service profile editing and password changes are implemented; forgot-password/reset uses an emailed verification code. See `docs/AUTH.md`, `docs/TAXONOMY.md`, and `docs/BLOGS.md` for configuration and API use.
+Status: implementation started module by module. Users and Auth are implemented. Categories and Tags now provide public reads, author/admin creation, owner-or-admin editing, and admin-only deletion. Tags now belong to a required category, tag-name uniqueness is scoped to the category, admin category deletion cascades to its child tags, and category/tag slugs regenerate on rename. Blogs CRUD, drafts/publishing, ownership/admin moderation, pagination, and public search/category/tag/author filters are implemented. General database migrations are pending. Self-service profile editing and password changes are implemented; forgot-password/reset uses an emailed verification code. Admin user listing, detail, and author enable/disable management are implemented; see `docs/USER_MANAGEMENT.md`. See `docs/AUTH.md`, `docs/TAXONOMY.md`, and `docs/BLOGS.md` for configuration and API use.
 
 ## Goal and agreed scope
 
@@ -10,7 +10,7 @@ Visitors can read published blogs and shared categories/tags. Registered authors
 
 V1 includes email/password authentication with refresh sessions, blog CRUD, taxonomy, search/filter/pagination, migrations, tests, local setup, and API documentation. Keep `POST /auth/refresh` and per-session logout. Do not implement `POST /auth/logout-all`.
 
-Deployment, comments, likes, registration email verification, account deletion, and admin user-management APIs are outside v1.
+Deployment, comments, likes, registration email verification, account deletion, admin role changes, and admin profile/password overrides are outside v1.
 
 ## Milestone 1: Backend foundation
 
@@ -34,7 +34,7 @@ Use UUID primary keys and timestamps.
 
 | Table              | Main fields and relationships                                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `users`            | Unique normalized email, display name, password hash, author/admin role                                                         |
+| `users`            | Unique normalized email, display name, password hash, author/admin role, active/disabled status                                                         |
 | `refresh_sessions` | User, session identifier, expiry, revocation state                                                                              |
 | `refresh_tokens`   | Session, unique token hash, creation time, rotation/use timestamp; retained for reuse detection                                 |
 | `blogs`            | Author, category, title, unique slug, Markdown content, optional cover URL, draft/published status, first publication timestamp |
