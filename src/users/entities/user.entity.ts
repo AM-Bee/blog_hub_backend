@@ -1,3 +1,5 @@
+import { UserRole } from '../enums/user-role.enum.js';
+import { UserStatus } from '../enums/user-status.enum.js';
 import {
   Column,
   CreateDateColumn,
@@ -6,16 +8,6 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-
-export enum UserRole {
-  AUTHOR = 'author',
-  ADMIN = 'admin',
-}
-
-export enum UserStatus {
-  ACTIVE = 'active',
-  DISABLED = 'disabled',
-}
 
 @Entity('users')
 @Index('UQ_users_email', ['email'], { unique: true })

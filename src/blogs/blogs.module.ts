@@ -1,3 +1,4 @@
+import { BlogsRepository } from './blogs.repository.js';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
@@ -20,7 +21,7 @@ import { BlogsController } from './blogs.controller.js';
     ]),
   ],
   controllers: [BlogsController],
-  providers: [BlogsService, BlogImageStore],
+  providers: [BlogsRepository, BlogsService, BlogImageStore],
   exports: [BlogsService],
 })
 export class BlogsModule {}

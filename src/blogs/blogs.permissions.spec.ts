@@ -3,10 +3,12 @@ import { DataSource } from 'typeorm';
 import type { Repository } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { BlogsService } from './blogs.service.js';
-import { BlogEntity, BlogStatus } from './entities/blog.entity.js';
+import { BlogsRepository } from './blogs.repository.js';
+import { BlogEntity } from './entities/blog.entity.js';
+import { BlogStatus } from './enums/blog-status.enum.js';
 import { BlogImageStore } from './blog-image.store.js';
-import { UserRole } from '../users/entities/user.entity.js';
-import type { AuthUser } from '../auth/auth.service.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
+import type { AuthUser } from '../auth/interfaces/auth.interface.js';
 import type { UpdateBlogDto } from './dto/update-blog.dto.js';
 
 describe('Blog ownership permissions', () => {
@@ -65,7 +67,9 @@ describe('Blog ownership permissions', () => {
       save: vi.fn().mockResolvedValue('/images/cover.png'),
       discard: vi.fn(),
     } as unknown as BlogImageStore;
-    service = new BlogsService(repository, dataSource, images);
+    service = new BlogsService(
+      new BlogsRepository(repository, dataSource, images),
+    );
   });
 
   it.each<UpdateBlogDto>([

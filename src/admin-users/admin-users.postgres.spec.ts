@@ -13,24 +13,27 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import request from 'supertest';
-import {
-  UserEntity,
-  UserRole,
-  UserStatus,
-} from '../users/entities/user.entity.js';
+import { UserEntity } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
+import { UserStatus } from '../users/enums/user-status.enum.js';
 import { UsersService } from '../users/users.service.js';
+import { UsersRepository } from '../users/users.repository.js';
 import { AuthService } from '../auth/auth.service.js';
+import { AuthRepository } from '../auth/auth.repository.js';
 import { PasswordResetMailService } from '../auth/password-reset-mail.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
-import { BlogEntity, BlogStatus } from '../blogs/entities/blog.entity.js';
+import { BlogEntity } from '../blogs/entities/blog.entity.js';
+import { BlogStatus } from '../blogs/enums/blog-status.enum.js';
 import { BlogTagEntity } from '../blogs/entities/blog-tag.entity.js';
 import { BlogsService } from '../blogs/blogs.service.js';
+import { BlogsRepository } from '../blogs/blogs.repository.js';
 import { CategoryEntity } from '../categories/entities/category.entity.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
 import { AdminUsersService } from './admin-users.service.js';
+import { AdminUsersRepository } from './admin-users.repository.js';
 import { AdminUsersController } from './admin-users.controller.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 
@@ -88,15 +91,18 @@ describe.skipIf(process.env.BLOGHUB_RUN_DB_TESTS !== '1')(
         installExtensions: false,
       });
       await ds.initialize();
-      const users = new UsersService(ds.getRepository(UserEntity));
+      const users = new UsersService(
+        new UsersRepository(ds.getRepository(UserEntity)),
+      );
       auth = new AuthService(
         users,
         new JwtService({ secret: 'admin-test-secret-at-least-32-bytes' }),
-        ds,
-        ds.getRepository(RefreshSessionEntity),
+        new AuthRepository(ds, ds.getRepository(RefreshSessionEntity)),
         mail as unknown as PasswordResetMailService,
       );
-      service = new AdminUsersService(ds.getRepository(UserEntity));
+      service = new AdminUsersService(
+        new AdminUsersRepository(ds.getRepository(UserEntity)),
+      );
       const module = await Test.createTestingModule({
         controllers: [AdminUsersController],
         providers: [
@@ -248,7 +254,9 @@ describe.skipIf(process.env.BLOGHUB_RUN_DB_TESTS !== '1')(
           (await service.findAll({} as ListUsersQueryDto)).items[0],
         ).not.toHaveProperty(field);
       }
-      const blogs = new BlogsService(ds.getRepository(BlogEntity), ds);
+      const blogs = new BlogsService(
+        new BlogsRepository(ds.getRepository(BlogEntity), ds),
+      );
       expect(
         (await blogs.findAll({ page: 1, limit: 10 })).items.map(
           (blog) => blog.slug,

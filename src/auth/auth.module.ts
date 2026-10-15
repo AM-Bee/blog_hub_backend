@@ -1,3 +1,4 @@
+import { AuthRepository } from './auth.repository.js';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -26,6 +27,7 @@ import { PasswordResetMailService } from './password-reset-mail.service.js';
   providers: [
     { provide: AUTH_OPTIONS, useFactory: authOptions },
     AuthService,
+    AuthRepository,
     PasswordResetMailService,
     JwtAuthGuard,
     RolesGuard,

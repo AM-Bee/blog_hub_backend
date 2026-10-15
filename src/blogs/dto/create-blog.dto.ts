@@ -13,7 +13,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { BlogStatus } from '../entities/blog.entity.js';
+import { BlogStatus } from '../enums/blog-status.enum.js';
 
 export class CreateBlogDto {
   @ApiProperty({ maxLength: 200, example: 'Getting started with Ballet' })
@@ -41,7 +41,9 @@ export class CreateBlogDto {
     description: 'Unique tag UUIDs belonging to categoryId',
   })
   @Transform(({ value }: { value: unknown }) => {
-    if (typeof value !== 'string') return value;
+    if (typeof value !== 'string') {
+      return value;
+    }
     try {
       return JSON.parse(value) as unknown;
     } catch {

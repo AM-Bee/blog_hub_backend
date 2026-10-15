@@ -1,3 +1,5 @@
+import { CategoriesRepository } from '../categories/categories.repository.js';
+import { TagsRepository } from './tags.repository.js';
 import {
   BadRequestException,
   ConflictException,
@@ -15,7 +17,8 @@ import { CategoriesService } from '../categories/categories.service.js';
 import { CreateTagDto } from './dto/create-tag.dto.js';
 import { UpdateTagDto } from './dto/update-tag.dto.js';
 import { ListTagsQueryDto } from './dto/list-tags-query.dto.js';
-import { UserRole, UserStatus } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
+import { UserStatus } from '../users/enums/user-status.enum.js';
 
 describe('Tags belong to categories', () => {
   let service: TagsService;
@@ -71,6 +74,7 @@ describe('Tags belong to categories', () => {
     const module = await Test.createTestingModule({
       providers: [
         TagsService,
+        TagsRepository,
         { provide: getRepositoryToken(TagEntity), useValue: repository },
         {
           provide: getRepositoryToken(CategoryEntity),
@@ -181,6 +185,7 @@ describe('Category deletion with child tags', () => {
     const module = await Test.createTestingModule({
       providers: [
         CategoriesService,
+        CategoriesRepository,
         { provide: getRepositoryToken(CategoryEntity), useValue: repository },
       ],
     }).compile();

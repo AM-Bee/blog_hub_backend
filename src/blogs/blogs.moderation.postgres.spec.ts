@@ -7,9 +7,12 @@ import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { UserEntity, UserRole } from '../users/entities/user.entity.js';
+import { UserEntity } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
 import { UsersService } from '../users/users.service.js';
+import { UsersRepository } from '../users/users.repository.js';
 import { AuthService } from '../auth/auth.service.js';
+import { AuthRepository } from '../auth/auth.repository.js';
 import { PasswordResetMailService } from '../auth/password-reset-mail.service.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
@@ -17,9 +20,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { CategoryEntity } from '../categories/entities/category.entity.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
-import { BlogEntity, BlogStatus } from './entities/blog.entity.js';
+import { BlogEntity } from './entities/blog.entity.js';
+import { BlogStatus } from './enums/blog-status.enum.js';
 import { BlogTagEntity } from './entities/blog-tag.entity.js';
 import { BlogsService } from './blogs.service.js';
+import { BlogsRepository } from './blogs.repository.js';
 import { BlogsController } from './blogs.controller.js';
 
 // No application tables are changed and email delivery is mocked.
@@ -74,18 +79,21 @@ describe.skipIf(process.env.BLOGHUB_RUN_DB_TESTS !== '1')(
         installExtensions: false,
       });
       await ds.initialize();
-      const users = new UsersService(ds.getRepository(UserEntity));
+      const users = new UsersService(
+        new UsersRepository(ds.getRepository(UserEntity)),
+      );
       auth = new AuthService(
         users,
         new JwtService({ secret: 'moderation-test-secret-at-least-32-bytes' }),
-        ds,
-        ds.getRepository(RefreshSessionEntity),
+        new AuthRepository(ds, ds.getRepository(RefreshSessionEntity)),
         {
           ensureConfigured: vi.fn(),
           sendCode: vi.fn(),
         } as unknown as PasswordResetMailService,
       );
-      service = new BlogsService(ds.getRepository(BlogEntity), ds);
+      service = new BlogsService(
+        new BlogsRepository(ds.getRepository(BlogEntity), ds),
+      );
       const module = await Test.createTestingModule({
         controllers: [BlogsController],
         providers: [
@@ -100,14 +108,12 @@ describe.skipIf(process.env.BLOGHUB_RUN_DB_TESTS !== '1')(
       await app.listen(0, '127.0.0.1');
       const password = 'TestPassword123!';
       for (const role of [UserRole.AUTHOR, UserRole.ADMIN]) {
-        const user = await ds
-          .getRepository(UserEntity)
-          .save({
-            email: `${role}@example.com`,
-            displayName: role,
-            role,
-            passwordHash: await bcrypt.hash(password, 4),
-          });
+        const user = await ds.getRepository(UserEntity).save({
+          email: `${role}@example.com`,
+          displayName: role,
+          role,
+          passwordHash: await bcrypt.hash(password, 4),
+        });
         const profile = await users.findOne(user.id);
         const { accessToken } = await auth.login({
           email: user.email,
@@ -125,16 +131,14 @@ describe.skipIf(process.env.BLOGHUB_RUN_DB_TESTS !== '1')(
 
     beforeEach(async () => {
       await ds.query(`TRUNCATE TABLE "${schema}".blogs CASCADE`);
-      blog = await ds
-        .getRepository(BlogEntity)
-        .save({
-          authorId: owner.id,
-          title: 'Original',
-          content: 'Original content',
-          slug: 'original',
-          status: BlogStatus.PUBLISHED,
-          publishedAt: new Date('2026-01-01T00:00:00Z'),
-        });
+      blog = await ds.getRepository(BlogEntity).save({
+        authorId: owner.id,
+        title: 'Original',
+        content: 'Original content',
+        slug: 'original',
+        status: BlogStatus.PUBLISHED,
+        publishedAt: new Date('2026-01-01T00:00:00Z'),
+      });
     });
 
     afterAll(async () => {

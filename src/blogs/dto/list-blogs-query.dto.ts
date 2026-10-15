@@ -9,7 +9,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { BlogStatus } from '../entities/blog.entity.js';
+import { BlogStatus } from '../enums/blog-status.enum.js';
 
 export class BlogPaginationQueryDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })

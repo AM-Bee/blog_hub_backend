@@ -113,8 +113,9 @@ export class AuthController {
       });
       return { accessToken: result.accessToken, expiresIn: result.expiresIn };
     } catch (error) {
-      if (error instanceof UnauthorizedException)
+      if (error instanceof UnauthorizedException) {
         response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
+      }
       throw error;
     }
   }

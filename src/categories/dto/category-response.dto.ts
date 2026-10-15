@@ -1,6 +1,7 @@
+import type { Category } from '../interfaces/category.interface.js';
 import { ApiProperty } from '@nestjs/swagger';
 
-export class CategoryResponseDto {
+export class CategoryResponseDto implements Category {
   @ApiProperty({ format: 'uuid' })
   id: string;
 

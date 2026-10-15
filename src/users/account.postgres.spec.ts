@@ -10,8 +10,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from './users.service.js';
-import { UserEntity, UserRole } from './entities/user.entity.js';
+import { UsersRepository } from './users.repository.js';
+import { UserEntity } from './entities/user.entity.js';
+import { UserRole } from './enums/user-role.enum.js';
 import { AuthService } from '../auth/auth.service.js';
+import { AuthRepository } from '../auth/auth.repository.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
 import { PasswordResetMailService } from '../auth/password-reset-mail.service.js';
@@ -61,14 +64,15 @@ describe.skipIf(process.env.BLOGHUB_RUN_DB_TESTS !== '1')(
         installExtensions: false,
       });
       await ds.initialize();
-      users = new UsersService(ds.getRepository(UserEntity));
+      users = new UsersService(
+        new UsersRepository(ds.getRepository(UserEntity)),
+      );
       auth = new AuthService(
         users,
         new JwtService({
           secret: 'test-secret-at-least-32-bytes-for-accounts',
         }),
-        ds,
-        ds.getRepository(RefreshSessionEntity),
+        new AuthRepository(ds, ds.getRepository(RefreshSessionEntity)),
         mail as unknown as PasswordResetMailService,
       );
     }, 30000);

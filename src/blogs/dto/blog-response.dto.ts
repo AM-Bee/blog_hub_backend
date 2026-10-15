@@ -1,19 +1,28 @@
+import type {
+  Blog,
+  BlogAuthor,
+  BlogBase,
+  BlogCategory,
+  BlogPage,
+  BlogSummary,
+  BlogTag,
+} from '../interfaces/blog.interface.js';
 import { ApiProperty } from '@nestjs/swagger';
-import { BlogStatus } from '../entities/blog.entity.js';
+import { BlogStatus } from '../enums/blog-status.enum.js';
 
-export class BlogAuthorDto {
+export class BlogAuthorDto implements BlogAuthor {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() displayName: string;
 }
-export class BlogCategoryDto {
+export class BlogCategoryDto implements BlogCategory {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() name: string;
   @ApiProperty() slug: string;
 }
-export class BlogTagDto extends BlogCategoryDto {
+export class BlogTagDto extends BlogCategoryDto implements BlogTag {
   @ApiProperty({ format: 'uuid' }) categoryId: string;
 }
-export class BlogBaseResponseDto {
+export class BlogBaseResponseDto implements BlogBase {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() title: string;
   @ApiProperty() slug: string;
@@ -37,16 +46,16 @@ export class BlogBaseResponseDto {
   @ApiProperty({ type: String, format: 'date-time' }) createdAt: Date;
   @ApiProperty({ type: String, format: 'date-time' }) updatedAt: Date;
 }
-export class BlogResponseDto extends BlogBaseResponseDto {
+export class BlogResponseDto extends BlogBaseResponseDto implements Blog {
   @ApiProperty({ description: 'Full Markdown content' }) content: string;
 }
-export class BlogSummaryDto extends BlogBaseResponseDto {
+export class BlogSummaryDto extends BlogBaseResponseDto implements BlogSummary {
   @ApiProperty({
     description: 'First 200 Unicode characters of Markdown content',
   })
   excerpt: string;
 }
-export class BlogPageResponseDto {
+export class BlogPageResponseDto implements BlogPage {
   @ApiProperty({ type: [BlogSummaryDto] }) items: BlogSummaryDto[];
   @ApiProperty() page: number;
   @ApiProperty() limit: number;

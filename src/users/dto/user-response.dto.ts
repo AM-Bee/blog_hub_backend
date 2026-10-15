@@ -1,8 +1,10 @@
+import type { User } from '../interfaces/user.interface.js';
 import { ApiProperty } from '@nestjs/swagger';
-import { UserRole, UserStatus } from '../entities/user.entity.js';
+import { UserRole } from '../enums/user-role.enum.js';
+import { UserStatus } from '../enums/user-status.enum.js';
 
 // Private account profile for auth/me; never includes credentials.
-export class UserResponseDto {
+export class UserResponseDto implements User {
   @ApiProperty({ format: 'uuid' })
   id: string;
 

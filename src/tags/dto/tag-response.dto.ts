@@ -1,6 +1,7 @@
+import type { Tag } from '../interfaces/tag.interface.js';
 import { ApiProperty } from '@nestjs/swagger';
 
-export class TagResponseDto {
+export class TagResponseDto implements Tag {
   @ApiProperty({ format: 'uuid' })
   id: string;
 

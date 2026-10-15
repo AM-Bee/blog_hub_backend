@@ -6,10 +6,12 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DataSource } from 'typeorm';
 import type { EntityManager } from 'typeorm';
-import { UserEntity, UserRole } from './users/entities/user.entity.js';
+import { UserEntity } from './users/entities/user.entity.js';
+import { UserRole } from './users/enums/user-role.enum.js';
 import { CategoryEntity } from './categories/entities/category.entity.js';
 import { TagEntity } from './tags/entities/tag.entity.js';
-import { BlogEntity, BlogStatus } from './blogs/entities/blog.entity.js';
+import { BlogEntity } from './blogs/entities/blog.entity.js';
+import { BlogStatus } from './blogs/enums/blog-status.enum.js';
 import { BlogTagEntity } from './blogs/entities/blog-tag.entity.js';
 import { RefreshSessionEntity } from './auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from './auth/entities/refresh-token.entity.js';
@@ -138,10 +140,11 @@ const posts = [
 ];
 
 export async function seedData(dataSource: DataSource, password: string) {
-  if ([...password].length < 8 || Buffer.byteLength(password, 'utf8') > 72)
+  if ([...password].length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
     throw new Error(
       'SEED_PASSWORD must be at least 8 characters and at most 72 UTF-8 bytes',
     );
+  }
   const passwordHash = await bcrypt.hash(password, 10);
   const created = {
     users: 0,
@@ -161,10 +164,11 @@ export async function seedData(dataSource: DataSource, password: string) {
       const id = seedId(`user:${sample.key}`);
       let user = await manager.findOneBy(UserEntity, { id });
       if (!user) {
-        if (await manager.existsBy(UserEntity, { email: sample.email }))
+        if (await manager.existsBy(UserEntity, { email: sample.email })) {
           throw new Error(
             `Demo email ${sample.email} belongs to an existing account; no records were changed`,
           );
+        }
         user = await manager.save(UserEntity, {
           id,
           email: sample.email,
@@ -204,10 +208,11 @@ export async function seedData(dataSource: DataSource, password: string) {
             categoryId: category.id,
             normalizedName: tagName.toLowerCase(),
           }));
-        if (tag && tag.categoryId !== category.id)
+        if (tag && tag.categoryId !== category.id) {
           throw new Error(
             'A sample tag belongs to a different category; no records were changed',
           );
+        }
         if (!tag) {
           tag = await manager.save(TagEntity, {
             id: tagId,
@@ -226,7 +231,9 @@ export async function seedData(dataSource: DataSource, password: string) {
 
     for (const [index, sample] of posts.entries()) {
       const id = seedId(`blog:${sample.title}`);
-      if (await manager.existsBy(BlogEntity, { id })) continue;
+      if (await manager.existsBy(BlogEntity, { id })) {
+        continue;
+      }
       const group = taxonomy[sample.category];
       const publishedAt = sample.draft
         ? null
@@ -297,8 +304,9 @@ async function uniqueSlug(
 
 async function main() {
   dotenv.config({ quiet: true });
-  if (process.env.NODE_ENV === 'production')
+  if (process.env.NODE_ENV === 'production') {
     throw new Error('Demo seeding is for local development');
+  }
   const dataSource = new DataSource({
     type: 'postgres',
     host: process.env.DB_HOST,
@@ -318,7 +326,9 @@ async function main() {
     );
     console.log('Demo seed completed. Newly created records:', created);
   } finally {
-    if (dataSource.isInitialized) await dataSource.destroy();
+    if (dataSource.isInitialized) {
+      await dataSource.destroy();
+    }
   }
 }
 

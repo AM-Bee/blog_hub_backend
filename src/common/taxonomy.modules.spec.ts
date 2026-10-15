@@ -1,3 +1,7 @@
+import { BlogsModule } from '../blogs/blogs.module.js';
+import { AdminUsersModule } from '../admin-users/admin-users.module.js';
+import { BlogEntity } from '../blogs/entities/blog.entity.js';
+import { BlogTagEntity } from '../blogs/entities/blog-tag.entity.js';
 import {
   Global,
   Module,
@@ -16,7 +20,8 @@ import { CategoryEntity } from '../categories/entities/category.entity.js';
 import { TagsModule } from '../tags/tags.module.js';
 import { TagsController } from '../tags/tags.controller.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
-import { UserEntity, UserRole } from '../users/entities/user.entity.js';
+import { UserEntity } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -36,6 +41,8 @@ const dataSource = new MetadataDataSource({
     RefreshTokenEntity,
     CategoryEntity,
     TagEntity,
+    BlogEntity,
+    BlogTagEntity,
   ],
 });
 @Global()
@@ -96,7 +103,7 @@ describe.each([CategoriesController, TagsController])(
 describe('Taxonomy module and PostgreSQL metadata wiring', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('registers both resources, creator foreign keys, unique indexes, and documented routes without a live database', async () => {
+  it('wires feature services and repositories, relations, and Swagger without a live database', async () => {
     vi.stubEnv('JWT_SECRET', 'test-secret-for-bloghub-at-least-32-bytes');
     await dataSource.prepareMetadata();
     for (const Entity of [CategoryEntity, TagEntity]) {
@@ -129,7 +136,13 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       tagMetadata.findColumnWithPropertyName('categoryId')?.isNullable,
     ).toBe(false);
     const module = await Test.createTestingModule({
-      imports: [TestDatabaseModule, CategoriesModule, TagsModule],
+      imports: [
+        TestDatabaseModule,
+        CategoriesModule,
+        TagsModule,
+        BlogsModule,
+        AdminUsersModule,
+      ],
     }).compile();
     const app = module.createNestApplication();
     try {
@@ -157,7 +170,16 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       }
       expect(
         Object.keys(document.paths).some((path) => path.includes('/blogs')),
-      ).toBe(false);
+      ).toBe(true);
+      expect(document.paths['/api/v1/auth/me'].get?.security).toEqual([
+        { bearer: [] },
+      ]);
+      expect(document.paths['/api/v1/admin/users'].get?.security).toEqual([
+        { bearer: [] },
+      ]);
+      expect(document.components?.schemas?.UserResponseDto).toMatchObject({
+        properties: { role: { enum: ['author', 'admin'] } },
+      });
     } finally {
       await app.close();
     }

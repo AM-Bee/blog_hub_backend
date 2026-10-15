@@ -31,7 +31,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { AuthenticatedRequest } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
-import { UserRole } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
 
 @ApiTags('categories')
 @Controller('categories')

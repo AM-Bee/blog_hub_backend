@@ -9,7 +9,8 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { UserRole, UserStatus } from '../../users/entities/user.entity.js';
+import { UserRole } from '../../users/enums/user-role.enum.js';
+import { UserStatus } from '../../users/enums/user-status.enum.js';
 
 export class ListUsersQueryDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })

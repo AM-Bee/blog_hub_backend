@@ -1,3 +1,5 @@
+import { CategoriesRepository } from '../categories/categories.repository.js';
+import { TagsRepository } from '../tags/tags.repository.js';
 import {
   BadRequestException,
   ConflictException,
@@ -15,7 +17,8 @@ import { CreateCategoryDto } from '../categories/dto/create-category.dto.js';
 import { TagsService } from '../tags/tags.service.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
 import { CreateTagDto } from '../tags/dto/create-tag.dto.js';
-import { UserRole, UserStatus } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
+import { UserStatus } from '../users/enums/user-status.enum.js';
 import { normalizeTaxonomyName, taxonomySlug } from './taxonomy.utils.js';
 
 const resources = [
@@ -104,6 +107,7 @@ describe.each(resources)(
       const module = await Test.createTestingModule({
         providers: [
           Service,
+          resource === 'tags' ? TagsRepository : CategoriesRepository,
           { provide: getRepositoryToken(Entity), useValue: repository },
           ...(resource === 'tags'
             ? [

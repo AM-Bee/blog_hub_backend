@@ -145,3 +145,7 @@ Acceptance: a fresh checkout can be set up from the README, checks pass, and the
 ## Blog publication moderation
 
 Implemented `PATCH /admin/blogs/:id/status` for admin-only publishing/unpublishing. Admin `draft` sets `publicationBlocked: true`; the author can edit but cannot publish. Admin `published` clears the block and publishes the post. Owner-created drafts remain publishable normally. The first publication time is retained. See `docs/BLOG_MODERATION.md`.
+
+## Company-style structure
+
+Implemented explicit feature controllers, services, and repositories with DTOs, interfaces, enums, and TypeORM entities. Database configuration is in `src/database/database.module.ts` and reads `DB_PORT` through ConfigService. Existing routes and business rules are retained. No generic base services/controllers were added. See `docs/STRUCTURE.md`.

@@ -21,9 +21,10 @@ export async function validateDto<T extends object>(
     whitelist: true,
     forbidNonWhitelisted: true,
   });
-  if (errors.length)
+  if (errors.length) {
     throw new BadRequestException(
       errors.flatMap((error) => Object.values(error.constraints ?? {})),
     );
+  }
   return dto;
 }

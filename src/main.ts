@@ -1,14 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import helmet from 'helmet';
-import * as dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { frontendOrigins } from './auth/auth.config.js';
 import express from 'express';
 import { BLOG_IMAGE_DIRECTORY } from './blogs/blog-image.store.js';
-
-dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

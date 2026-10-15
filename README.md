@@ -27,6 +27,8 @@
 
 ## Project setup
 
+Folder layout, repository responsibilities, and coding conventions are documented in [docs/STRUCTURE.md](docs/STRUCTURE.md).
+
 BlogHub authentication configuration and API examples are documented in [docs/AUTH.md](docs/AUTH.md). Set `JWT_SECRET` in `.env` before starting the application; `.env.example` lists the configuration fields.
 
 Self-service profile editing and password changes are documented in [docs/ACCOUNT.md](docs/ACCOUNT.md).

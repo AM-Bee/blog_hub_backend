@@ -52,7 +52,8 @@ export class PasswordResetMailService {
       subject: 'BlogHub password reset code',
       text: `Your BlogHub password reset code is: ${code}\n\nThis code expires in 15 minutes and can only be used once. If you did not request a password reset, ignore this email.`,
     });
-    if (!result.accepted.length)
+    if (!result.accepted.length) {
       throw new Error('Reset email was not accepted');
+    }
   }
 }

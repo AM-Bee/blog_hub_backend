@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { UserRole } from '../../users/entities/user.entity.js';
+import type { UserRole } from '../../users/enums/user-role.enum.js';
 import { ROLES_KEY } from '../decorators/roles.decorator.js';
 import type { AuthenticatedRequest } from './jwt-auth.guard.js';
 
@@ -20,11 +20,16 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!roles?.length) return true;
+    if (!roles?.length) {
+      return true;
+    }
     const user = context.switchToHttp().getRequest<AuthenticatedRequest>().user;
-    if (!user) throw new UnauthorizedException();
-    if (!roles.includes(user.role))
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    if (!roles.includes(user.role)) {
       throw new ForbiddenException('Insufficient permissions');
+    }
     return true;
   }
 }

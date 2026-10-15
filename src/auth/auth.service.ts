@@ -7,9 +7,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull } from 'typeorm';
-import type { EntityManager, Repository } from 'typeorm';
+import { IsNull } from 'typeorm';
+import type { EntityManager } from 'typeorm';
+import { AuthRepository } from './auth.repository.js';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service.js';
@@ -17,19 +17,19 @@ import type { CreateUserDto } from '../users/dto/create-user.dto.js';
 import type { LoginDto } from './dto/login.dto.js';
 import { RefreshSessionEntity } from './entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
-import { UserEntity, UserStatus } from '../users/entities/user.entity.js';
+import { UserEntity } from '../users/entities/user.entity.js';
+import { UserStatus } from '../users/enums/user-status.enum.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { validateDto } from '../common/validation.utils.js';
 import { ACCESS_TOKEN_SECONDS, SESSION_MILLISECONDS } from './auth.config.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { PasswordResetMailService } from './password-reset-mail.service.js';
+import type { AuthUser, AuthTokens } from './interfaces/auth.interface.js';
 
 const RESET_LIFETIME = 15 * 60 * 1000;
 const RESET_MESSAGE =
   'If this email is registered, a password reset code has been sent.';
-
-export type AuthUser = Awaited<ReturnType<UsersService['findOne']>>;
 
 @Injectable()
 export class AuthService {
@@ -37,9 +37,7 @@ export class AuthService {
   constructor(
     @Inject(UsersService) private readonly usersService: UsersService,
     @Inject(JwtService) private readonly jwtService: JwtService,
-    @InjectDataSource() private readonly dataSource: DataSource,
-    @InjectRepository(RefreshSessionEntity)
-    private readonly sessionRepository: Repository<RefreshSessionEntity>,
+    @Inject(AuthRepository) private readonly repository: AuthRepository,
     @Inject(PasswordResetMailService)
     private readonly resetMail: PasswordResetMailService,
   ) {}
@@ -48,23 +46,21 @@ export class AuthService {
     return this.usersService.create(dto);
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto): Promise<AuthTokens> {
     // Serialize login with password changes so an old password cannot create a new session.
-    return this.dataSource.transaction(async (manager) => {
-      const user = await manager
-        .getRepository(UserEntity)
-        .createQueryBuilder('user')
-        .addSelect('user.passwordHash')
-        .where('user.email = :email', { email: dto.email.trim().toLowerCase() })
-        .setLock('pessimistic_write')
-        .getOne();
+    return this.repository.transaction(async (manager) => {
+      const user = await this.repository.findLockedUserByEmail(
+        manager,
+        dto.email.trim().toLowerCase(),
+      );
       if (
         !user ||
         user.status !== UserStatus.ACTIVE ||
         Buffer.byteLength(dto.password, 'utf8') > 72 ||
         !(await bcrypt.compare(dto.password, user.passwordHash))
-      )
+      ) {
         throw new UnauthorizedException('Invalid email or password');
+      }
       const session = Object.assign(new RefreshSessionEntity(), {
         id: randomUUID(),
         userId: user.id,
@@ -89,21 +85,16 @@ export class AuthService {
 
   async changePassword(userId: string, input: ChangePasswordDto) {
     const dto = await validateDto(input, ChangePasswordDto);
-    await this.dataSource.transaction(async (manager) => {
-      const user = await manager
-        .getRepository(UserEntity)
-        .createQueryBuilder('user')
-        .addSelect('user.passwordHash')
-        .where('user.id = :id', { id: userId })
-        .setLock('pessimistic_write')
-        .getOne();
+    await this.repository.transaction(async (manager) => {
+      const user = await this.repository.findLockedUserById(manager, userId);
       if (
         !user ||
         user.status !== UserStatus.ACTIVE ||
         Buffer.byteLength(dto.currentPassword, 'utf8') > 72 ||
         !(await bcrypt.compare(dto.currentPassword, user.passwordHash))
-      )
+      ) {
         throw new UnauthorizedException('Current password is incorrect');
+      }
       await this.replacePassword(manager, user.id, dto.newPassword);
     });
     return { message: 'Password changed successfully. Please log in again.' };
@@ -112,22 +103,22 @@ export class AuthService {
   async forgotPassword(input: ForgotPasswordDto) {
     const dto = await validateDto(input, ForgotPasswordDto);
     this.resetMail.ensureConfigured();
-    await this.dataSource.transaction(async (manager) => {
-      const user = await manager
-        .getRepository(UserEntity)
-        .createQueryBuilder('user')
-        .addSelect('user.passwordResetExpiresAt')
-        .where('user.email = :email', { email: dto.email })
-        .setLock('pessimistic_write')
-        .getOne();
-      if (!user || user.status !== UserStatus.ACTIVE) return;
+    await this.repository.transaction(async (manager) => {
+      const user = await this.repository.findLockedResetUser(
+        manager,
+        dto.email,
+      );
+      if (!user || user.status !== UserStatus.ACTIVE) {
+        return;
+      }
       // Limit mail to one request per minute per account, even across IP addresses.
       if (
         user.passwordResetExpiresAt &&
         user.passwordResetExpiresAt.getTime() - RESET_LIFETIME + 60_000 >
           Date.now()
-      )
+      ) {
         return;
+      }
       const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
       const codeHash = await bcrypt.hash(code, 10);
       try {
@@ -152,18 +143,11 @@ export class AuthService {
 
   async resetPassword(input: ResetPasswordDto) {
     const dto = await validateDto(input, ResetPasswordDto);
-    const reset = await this.dataSource.transaction(async (manager) => {
-      const user = await manager
-        .getRepository(UserEntity)
-        .createQueryBuilder('user')
-        .addSelect([
-          'user.passwordResetCodeHash',
-          'user.passwordResetExpiresAt',
-          'user.passwordResetAttempts',
-        ])
-        .where('user.email = :email', { email: dto.email })
-        .setLock('pessimistic_write')
-        .getOne();
+    const reset = await this.repository.transaction(async (manager) => {
+      const user = await this.repository.findLockedResetUser(
+        manager,
+        dto.email,
+      );
       if (
         !user ||
         user.status !== UserStatus.ACTIVE ||
@@ -171,8 +155,9 @@ export class AuthService {
         !user.passwordResetExpiresAt ||
         user.passwordResetExpiresAt.getTime() <= Date.now() ||
         user.passwordResetAttempts >= 5
-      )
+      ) {
         return false;
+      }
       if (!(await bcrypt.compare(dto.code, user.passwordResetCodeHash))) {
         await manager.update(
           UserEntity,
@@ -185,7 +170,9 @@ export class AuthService {
       await this.replacePassword(manager, user.id, dto.newPassword);
       return true;
     });
-    if (!reset) throw new BadRequestException('Invalid or expired reset code');
+    if (!reset) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
     return { message: 'Password reset successfully. Please log in again.' };
   }
 
@@ -212,28 +199,35 @@ export class AuthService {
     );
   }
 
-  async refresh(refreshToken: unknown) {
+  async refresh(refreshToken: unknown): Promise<AuthTokens> {
     const sessionId = this.sessionId(refreshToken);
-    if (!sessionId || typeof refreshToken !== 'string')
+    if (!sessionId || typeof refreshToken !== 'string') {
       throw new UnauthorizedException('Invalid refresh token');
-    const result = await this.dataSource.transaction(async (manager) => {
-      const session = await manager.findOne(RefreshSessionEntity, {
-        where: { id: sessionId },
-        lock: { mode: 'pessimistic_write' },
-      });
+    }
+    const result = await this.repository.transaction(async (manager) => {
+      const session = await this.repository.findLockedSession(
+        manager,
+        sessionId,
+      );
       if (
         !session ||
         session.revokedAt ||
         session.expiresAt.getTime() <= Date.now()
-      )
+      ) {
         return null;
-      const user = await manager.findOneBy(UserEntity, { id: session.userId });
-      if (!user || user.status !== UserStatus.ACTIVE) return null;
-      const token = await manager.findOneBy(RefreshTokenEntity, {
-        tokenHash: this.hash(refreshToken),
-        sessionId, 
-      });
-      if (!token) return null;
+      }
+      const user = await this.repository.findUser(manager, session.userId);
+      if (!user || user.status !== UserStatus.ACTIVE) {
+        return null;
+      }
+      const token = await this.repository.findToken(
+        manager,
+        sessionId,
+        this.hash(refreshToken),
+      );
+      if (!token) {
+        return null;
+      }
       if (token.usedAt) {
         session.revokedAt = new Date();
         await manager.save(RefreshSessionEntity, session);
@@ -259,25 +253,33 @@ export class AuthService {
         expiresIn: ACCESS_TOKEN_SECONDS,
       };
     });
-    if (!result)
+    if (!result) {
       throw new UnauthorizedException('Invalid or expired refresh session');
+    }
     return result;
   }
 
   async logout(refreshToken: unknown): Promise<void> {
     const sessionId = this.sessionId(refreshToken);
-    if (!sessionId || typeof refreshToken !== 'string') return;
-    await this.dataSource.transaction(async (manager) => {
-      const session = await manager.findOne(RefreshSessionEntity, {
-        where: { id: sessionId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!session || session.revokedAt) return;
-      const token = await manager.findOneBy(RefreshTokenEntity, {
-        tokenHash: this.hash(refreshToken),
+    if (!sessionId || typeof refreshToken !== 'string') {
+      return;
+    }
+    await this.repository.transaction(async (manager) => {
+      const session = await this.repository.findLockedSession(
+        manager,
         sessionId,
-      });
-      if (!token) return;
+      );
+      if (!session || session.revokedAt) {
+        return;
+      }
+      const token = await this.repository.findToken(
+        manager,
+        sessionId,
+        this.hash(refreshToken),
+      );
+      if (!token) {
+        return;
+      }
       session.revokedAt = new Date();
       await manager.save(RefreshSessionEntity, session);
     });
@@ -303,10 +305,7 @@ export class AuthService {
     ) {
       throw new UnauthorizedException('Invalid access token');
     }
-    const session = await this.sessionRepository.findOneBy({
-      id: payload.sid,
-      userId: payload.sub,
-    });
+    const session = await this.repository.findSession(payload.sid, payload.sub);
     if (
       !session ||
       session.revokedAt ||
@@ -316,16 +315,17 @@ export class AuthService {
     }
     try {
       const user = await this.usersService.findOne(payload.sub);
-      if (user.status !== UserStatus.ACTIVE)
+      if (user.status !== UserStatus.ACTIVE) {
         throw new UnauthorizedException('Account is disabled');
+      }
       return user;
     } catch (error) {
-      if (error instanceof NotFoundException)
+      if (error instanceof NotFoundException) {
         throw new UnauthorizedException('Account no longer exists');
+      }
       throw error;
     }
   }
-
   private signAccessToken(session: RefreshSessionEntity) {
     return this.jwtService.signAsync(
       { sub: session.userId, sid: session.id },
@@ -364,7 +364,9 @@ export class AuthService {
   }
 
   private sessionId(token: unknown): string | null {
-    if (typeof token !== 'string') return null;
+    if (typeof token !== 'string') {
+      return null;
+    }
     const parts = token.split('.');
     return parts.length === 2 &&
       this.isUuid(parts[0]) &&

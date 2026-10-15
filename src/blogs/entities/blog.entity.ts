@@ -1,3 +1,4 @@
+import { BlogStatus } from '../enums/blog-status.enum.js';
 import {
   Column,
   CreateDateColumn,
@@ -13,11 +14,6 @@ import type { Relation } from 'typeorm';
 import { UserEntity } from '../../users/entities/user.entity.js';
 import { CategoryEntity } from '../../categories/entities/category.entity.js';
 import { BlogTagEntity } from './blog-tag.entity.js';
-
-export enum BlogStatus {
-  DRAFT = 'draft',
-  PUBLISHED = 'published',
-}
 
 @Entity('blogs')
 @Index('UQ_blogs_slug', ['slug'], { unique: true })
