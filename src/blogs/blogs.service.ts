@@ -8,6 +8,7 @@ import {
   ManageBlogsQueryDto,
 } from './dto/list-blogs-query.dto.js';
 import type { AuthUser } from '../auth/interfaces/auth.interface.js';
+import { ListBlogAuditLogsQueryDto } from './dto/list-blog-audit-logs-query.dto.js';
 
 @Injectable()
 export class BlogsService {
@@ -33,6 +34,14 @@ export class BlogsService {
 
   findMyOne(id: string, user: AuthUser) {
     return this.repository.findMyOne(id, user);
+  }
+
+  findMyAuditLogs(query: ListBlogAuditLogsQueryDto, user: AuthUser) {
+    return this.repository.findMyAuditLogs(query, user);
+  }
+
+  findMyAuditLog(id: string, user: AuthUser) {
+    return this.repository.findMyAuditLog(id, user);
   }
 
   findAllForAdmin(query: ManageBlogsQueryDto, user: AuthUser) {

@@ -49,6 +49,11 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { UserRole } from '../users/enums/user-role.enum.js';
 
 import { dtoValidationPipe } from '../common/validation.utils.js';
+import { ListBlogAuditLogsQueryDto } from './dto/list-blog-audit-logs-query.dto.js';
+import {
+  BlogAuditLogPageResponseDto,
+  BlogAuditLogResponseDto,
+} from './dto/blog-audit-log-response.dto.js';
 
 @ApiTags('blogs')
 @ApiExtraModels(CreateBlogDto, UpdateBlogDto)
@@ -99,6 +104,37 @@ export class BlogsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.blogsService.findMyOne(id, request.user);
+  }
+
+  @Get('me/blog-audit-logs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.AUTHOR, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'List your own post actions, including deleted posts',
+  })
+  @ApiOkResponse({ type: BlogAuditLogPageResponseDto })
+  findMyAuditLogs(
+    @Query(dtoValidationPipe(ListBlogAuditLogsQueryDto))
+    query: ListBlogAuditLogsQueryDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.blogsService.findMyAuditLogs(query, request.user);
+  }
+
+  @Get('me/blog-audit-logs/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.AUTHOR, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Read changes or a deletion snapshot for your own action',
+  })
+  @ApiOkResponse({ type: BlogAuditLogResponseDto })
+  findMyAuditLog(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.blogsService.findMyAuditLog(id, request.user);
   }
 
   @Get('admin/blogs')

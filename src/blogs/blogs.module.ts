@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
 import { BlogEntity } from './entities/blog.entity.js';
 import { BlogTagEntity } from './entities/blog-tag.entity.js';
+import { BlogAuditLogEntity } from './entities/blog-audit-log.entity.js';
 import { CategoryEntity } from '../categories/entities/category.entity.js';
 import { TagEntity } from '../tags/entities/tag.entity.js';
 import { BlogImageStore } from './blog-image.store.js';
@@ -16,6 +17,7 @@ import { BlogsController } from './blogs.controller.js';
     TypeOrmModule.forFeature([
       BlogEntity,
       BlogTagEntity,
+      BlogAuditLogEntity,
       CategoryEntity,
       TagEntity,
     ]),

@@ -33,6 +33,17 @@ import { UserRole } from '../users/enums/user-role.enum.js';
 import { validateDto } from '../common/validation.utils.js';
 import { taxonomySlug } from '../common/taxonomy.utils.js';
 import { BlogImageStore } from './blog-image.store.js';
+import { BlogAuditLogEntity } from './entities/blog-audit-log.entity.js';
+import { BlogAuditAction } from './enums/blog-audit-action.enum.js';
+import { ListBlogAuditLogsQueryDto } from './dto/list-blog-audit-logs-query.dto.js';
+import type {
+  BlogAuditSnapshot,
+  BlogAuditChanges,
+  BlogAuditField,
+  BlogAuditLog,
+  BlogAuditLogSummary,
+  BlogAuditLogPage,
+} from './interfaces/blog-audit-log.interface.js';
 
 @Injectable()
 export class BlogsRepository {
@@ -135,6 +146,48 @@ export class BlogsRepository {
     return this.toResponse(blog);
   }
 
+  async findMyAuditLogs(
+    input: ListBlogAuditLogsQueryDto,
+    user: AuthUser,
+  ): Promise<BlogAuditLogPage> {
+    const query = await validateDto(input, ListBlogAuditLogsQueryDto);
+    const [logs, total] = await this.dataSource
+      .getRepository(BlogAuditLogEntity)
+      .findAndCount({
+        where: { actorId: user.id },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      });
+    return {
+      items: logs.map((log) => this.auditSummary(log)),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
+  }
+
+  async findMyAuditLog(id: string, user: AuthUser): Promise<BlogAuditLog> {
+    const log = await this.dataSource
+      .getRepository(BlogAuditLogEntity)
+      .createQueryBuilder('audit')
+      .addSelect(['audit.changes', 'audit.snapshot'])
+      .where('audit.id = :id AND audit.actorId = :actorId', {
+        id,
+        actorId: user.id,
+      })
+      .getOne();
+    if (!log) {
+      throw new NotFoundException('Audit log not found');
+    }
+    return {
+      ...this.auditSummary(log),
+      changes: log.changes,
+      snapshot: log.snapshot,
+    };
+  }
+
   async findAllForAdmin(
     input: ManageBlogsQueryDto,
     user: AuthUser,
@@ -168,12 +221,19 @@ export class BlogsRepository {
       if (!blog) {
         throw new NotFoundException('Blog not found');
       }
+      const before = await this.auditSnapshot(manager, id);
       blog.status = dto.status;
       blog.publicationBlocked = dto.status === BlogStatus.DRAFT;
       if (dto.status === BlogStatus.PUBLISHED && !blog.publishedAt) {
         blog.publishedAt = new Date();
       }
       await manager.save(BlogEntity, blog);
+      await this.recordAudit(
+        manager,
+        user,
+        before,
+        await this.auditSnapshot(manager, id),
+      );
     });
     return this.findDetail(id);
   }
@@ -207,6 +267,7 @@ export class BlogsRepository {
             'This post was unpublished by an admin. Only an admin can publish it through the admin status route.',
           );
         }
+        const before = await this.auditSnapshot(manager, id);
         const categoryId = dto.categoryId ?? blog.categoryId;
         const categoryChanged =
           dto.categoryId !== undefined && dto.categoryId !== blog.categoryId;
@@ -250,6 +311,12 @@ export class BlogsRepository {
         if (tagIds !== undefined) {
           await this.replaceTags(manager, id, tagIds);
         }
+        await this.recordAudit(
+          manager,
+          user,
+          before,
+          await this.auditSnapshot(manager, id),
+        );
       });
       committed = true;
     } finally {
@@ -271,6 +338,8 @@ export class BlogsRepository {
         throw new NotFoundException('Blog not found');
       }
       this.assertOwnerOrAdmin(blog, user);
+      const before = await this.auditSnapshot(manager, id);
+      await this.recordAudit(manager, user, before, null);
       await manager.delete(BlogEntity, id);
     });
   }
@@ -324,14 +393,107 @@ export class BlogsRepository {
     }
   }
 
-  private viewQuery() {
-    return this.blogRepository
+  private viewQuery(manager?: EntityManager) {
+    const repository = manager
+      ? manager.getRepository(BlogEntity)
+      : this.blogRepository;
+    return repository
       .createQueryBuilder('blog')
       .leftJoin('blog.author', 'author')
       .addSelect(['author.id', 'author.displayName'])
       .leftJoinAndSelect('blog.category', 'category')
       .leftJoinAndSelect('blog.tagLinks', 'tagLink')
       .leftJoinAndSelect('tagLink.tag', 'tag');
+  }
+
+  private async auditSnapshot(
+    manager: EntityManager,
+    id: string,
+  ): Promise<BlogAuditSnapshot> {
+    // Read through the transaction's manager, after locking the post row.
+    const blog = await this.viewQuery(manager)
+      .where('blog.id = :id', { id })
+      .getOne();
+    if (!blog) {
+      throw new NotFoundException('Blog not found');
+    }
+    const { author, publishedAt, createdAt, updatedAt, ...post } =
+      this.toResponse(blog);
+    return {
+      ...post,
+      authorId: author.id,
+      publishedAt: publishedAt?.toISOString() ?? null,
+      createdAt: createdAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+    };
+  }
+
+  private async recordAudit(
+    manager: EntityManager,
+    user: AuthUser,
+    before: BlogAuditSnapshot,
+    after: BlogAuditSnapshot | null,
+  ): Promise<void> {
+    const changes: BlogAuditChanges = {};
+    let action = BlogAuditAction.DELETED;
+    if (after) {
+      const fields: BlogAuditField[] = [
+        'title',
+        'content',
+        'category',
+        'tags',
+        'coverImageUrl',
+        'status',
+        'publicationBlocked',
+        'publishedAt',
+      ];
+      for (const field of fields) {
+        // Taxonomy labels can be renamed separately; compare relationships by ID.
+        let oldValue: unknown = before[field];
+        let newValue: unknown = after[field];
+        if (field === 'category') {
+          oldValue = before.categoryId;
+          newValue = after.categoryId;
+        } else if (field === 'tags') {
+          oldValue = before.tags.map((tag) => tag.id).sort();
+          newValue = after.tags.map((tag) => tag.id).sort();
+        }
+        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+          changes[field] = { old: before[field], new: after[field] };
+        }
+      }
+      if (!Object.keys(changes).length) {
+        return;
+      }
+      action = BlogAuditAction.UPDATED;
+      if (changes.status || changes.publicationBlocked) {
+        action =
+          after.status === BlogStatus.PUBLISHED
+            ? BlogAuditAction.PUBLISHED
+            : BlogAuditAction.UNPUBLISHED;
+      }
+    }
+    await manager.insert(BlogAuditLogEntity, {
+      blogId: before.id,
+      blogTitle: after?.title ?? before.title,
+      actorId: user.id,
+      postAuthorId: before.authorId,
+      action,
+      changes,
+      snapshot: after ? null : before,
+    });
+  }
+
+  private auditSummary(log: BlogAuditLogEntity): BlogAuditLogSummary {
+    return {
+      id: log.id,
+      blogId: log.blogId,
+      blogTitle: log.blogTitle,
+      actorId: log.actorId,
+      postAuthorId: log.postAuthorId,
+      action: log.action,
+      createdAt: log.createdAt,
+    };
   }
 
   private async findDetailEntity(id: string): Promise<BlogEntity> {

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { AddGoogleAccounts1792454400000 } from './migrations/1792454400000-AddGoogleAccounts.js';
+import { AddBlogAuditLogs1792490000000 } from './migrations/1792490000000-AddBlogAuditLogs.js';
 
 // Used only by migration commands. Application startup keeps its current configuration.
 export default new DataSource({
@@ -12,5 +13,5 @@ export default new DataSource({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   synchronize: false,
-  migrations: [AddGoogleAccounts1792454400000],
+  migrations: [AddGoogleAccounts1792454400000, AddBlogAuditLogs1792490000000],
 });

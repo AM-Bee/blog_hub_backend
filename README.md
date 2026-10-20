@@ -134,3 +134,5 @@ Forgot-password email setup and EchoAPI testing: [docs/FORGOT_PASSWORD.md](docs/
 Admin user listing, details, and account status management: [docs/USER_MANAGEMENT.md](docs/USER_MANAGEMENT.md).
 
 Admin publishing/unpublishing and author publication blocks: [docs/BLOG_MODERATION.md](docs/BLOG_MODERATION.md).
+
+Post edit/delete history and the two personal audit endpoints: [docs/BLOG_AUDIT_LOGS.md](docs/BLOG_AUDIT_LOGS.md).

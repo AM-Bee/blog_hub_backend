@@ -2,6 +2,7 @@ import { BlogsModule } from '../blogs/blogs.module.js';
 import { AdminUsersModule } from '../admin-users/admin-users.module.js';
 import { BlogEntity } from '../blogs/entities/blog.entity.js';
 import { BlogTagEntity } from '../blogs/entities/blog-tag.entity.js';
+import { BlogAuditLogEntity } from '../blogs/entities/blog-audit-log.entity.js';
 import {
   Global,
   Module,
@@ -45,6 +46,7 @@ const dataSource = new MetadataDataSource({
     TagEntity,
     BlogEntity,
     BlogTagEntity,
+    BlogAuditLogEntity,
   ],
 });
 @Global()

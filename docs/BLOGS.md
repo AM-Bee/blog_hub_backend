@@ -104,3 +104,7 @@ BLOGHUB_RUN_DB_TESTS=1 npx vitest run src/blogs/blogs.postgres.spec.ts
 It uses local `.env` database credentials to create a uniquely named temporary schema, runs checks only against tables in that schema, and removes it afterward. The database user needs permission to create a schema. Existing application tables are preserved. The suite checks draft privacy, ownership/admin permissions, publishing, slug collisions, pagination, atomic validation, category deletion preserving posts, combined search/filter matching, literal wildcard handling, and filtered pagination.
 
 Responses include `publicationBlocked`, defaulting to `false`. When `true`, only `PATCH /admin/blogs/:id/status` with `{"status":"published"}` can clear the block. This flag is read-only for clients.
+
+## Personal audit history
+
+Successful edits, publication changes, and deletions are recorded transactionally. `GET /me/blog-audit-logs` lists only your own actions; `GET /me/blog-audit-logs/:id` shows changes or a deletion snapshot. History survives post deletion, and admin actions belong to the admin who performed them. See [BLOG_AUDIT_LOGS.md](BLOG_AUDIT_LOGS.md).
