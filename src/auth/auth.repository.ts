@@ -5,6 +5,7 @@ import type { EntityManager, Repository } from 'typeorm';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { RefreshSessionEntity } from './entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
+import { AuthAccountEntity } from './entities/auth-account.entity.js';
 
 @Injectable()
 export class AuthRepository {
@@ -20,6 +21,13 @@ export class AuthRepository {
 
   findSession(id: string, userId: string) {
     return this.sessions.findOneBy({ id, userId });
+  }
+
+  findGoogleAccount(manager: EntityManager, providerAccountId: string) {
+    return manager.findOneBy(AuthAccountEntity, {
+      provider: 'google',
+      providerAccountId,
+    });
   }
 
   findLockedSession(manager: EntityManager, id: string) {

@@ -149,3 +149,11 @@ Implemented `PATCH /admin/blogs/:id/status` for admin-only publishing/unpublishi
 ## Company-style structure
 
 Implemented explicit feature controllers, services, and repositories with DTOs, interfaces, enums, and TypeORM entities. Database configuration is in `src/database/database.module.ts` and reads `DB_PORT` through ConfigService. Existing routes and business rules are retained. No generic base services/controllers were added. See `docs/STRUCTURE.md`.
+
+## Google login backend
+
+Implemented in the existing Auth module: Google ID-token verification, `auth_accounts`, nullable passwords, `POST /auth/google`, and password-confirmed `POST /auth/google/link`. Local password authentication and the existing JWT/refresh flow are preserved. An incremental migration is provided but has not been applied to the application database. Next stage: Auth.js frontend integration. See `docs/GOOGLE_AUTH.md`.
+
+## Deferred blog audit history
+
+Agreed scope: one `blog_audit_logs` table within the existing Blogs module, plus protected `GET /me/blog-audit-logs` and `GET /me/blog-audit-logs/:id`. Authors see only their own actions. Record actor ID and post author ID, old/new values for edits and publication changes, and a snapshot before deletion. Preserve records after post deletion, and write the log in the same transaction as the mutation. No separate audit module or admin audit endpoints in the agreed first version. Implementation is deferred until after Google authentication.

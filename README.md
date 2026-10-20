@@ -31,6 +31,8 @@ Folder layout, repository responsibilities, and coding conventions are documente
 
 BlogHub authentication configuration and API examples are documented in [docs/AUTH.md](docs/AUTH.md). Set `JWT_SECRET` in `.env` before starting the application; `.env.example` lists the configuration fields.
 
+Google login and explicit account linking are documented in [docs/GOOGLE_AUTH.md](docs/GOOGLE_AUTH.md). The backend is implemented; frontend Auth.js integration is the next stage.
+
 Self-service profile editing and password changes are documented in [docs/ACCOUNT.md](docs/ACCOUNT.md).
 
 Category/tag permissions and EchoAPI examples are documented in [docs/TAXONOMY.md](docs/TAXONOMY.md).

@@ -2,12 +2,13 @@ import {
   Inject,
   Injectable,
   BadRequestException,
+  ConflictException,
   Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { IsNull } from 'typeorm';
+import { IsNull, QueryFailedError } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { AuthRepository } from './auth.repository.js';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
@@ -18,6 +19,7 @@ import type { LoginDto } from './dto/login.dto.js';
 import { RefreshSessionEntity } from './entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
 import { UserEntity } from '../users/entities/user.entity.js';
+import { UserRole } from '../users/enums/user-role.enum.js';
 import { UserStatus } from '../users/enums/user-status.enum.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { validateDto } from '../common/validation.utils.js';
@@ -26,6 +28,11 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { PasswordResetMailService } from './password-reset-mail.service.js';
 import type { AuthUser, AuthTokens } from './interfaces/auth.interface.js';
+
+import { GoogleTokenService } from './google-token.service.js';
+import { GoogleLoginDto } from './dto/google-login.dto.js';
+import { LinkGoogleDto } from './dto/link-google.dto.js';
+import { AuthAccountEntity } from './entities/auth-account.entity.js';
 
 const RESET_LIFETIME = 15 * 60 * 1000;
 const RESET_MESSAGE =
@@ -40,6 +47,8 @@ export class AuthService {
     @Inject(AuthRepository) private readonly repository: AuthRepository,
     @Inject(PasswordResetMailService)
     private readonly resetMail: PasswordResetMailService,
+    @Inject(GoogleTokenService)
+    private readonly googleTokens: GoogleTokenService,
   ) {}
 
   register(dto: CreateUserDto) {
@@ -56,31 +65,140 @@ export class AuthService {
       if (
         !user ||
         user.status !== UserStatus.ACTIVE ||
+        !user.passwordHash ||
         Buffer.byteLength(dto.password, 'utf8') > 72 ||
         !(await bcrypt.compare(dto.password, user.passwordHash))
       ) {
         throw new UnauthorizedException('Invalid email or password');
       }
-      const session = Object.assign(new RefreshSessionEntity(), {
-        id: randomUUID(),
-        userId: user.id,
-        expiresAt: new Date(Date.now() + SESSION_MILLISECONDS),
-        revokedAt: null,
-      });
-      const refreshToken = this.newRefreshToken(session.id);
-      const accessToken = await this.signAccessToken(session);
-      await manager.save(RefreshSessionEntity, session);
-      await manager.save(
-        RefreshTokenEntity,
-        this.tokenRecord(session.id, refreshToken),
-      );
-      return {
-        accessToken,
-        refreshToken,
-        expiresAt: session.expiresAt,
-        expiresIn: ACCESS_TOKEN_SECONDS,
-      };
+      return this.createSession(manager, user.id);
     });
+  }
+
+  async googleLogin(input: GoogleLoginDto): Promise<AuthTokens> {
+    const dto = await validateDto(input, GoogleLoginDto);
+    const identity = await this.googleTokens.verify(dto.idToken);
+    try {
+      return await this.repository.transaction(async (manager) => {
+        const account = await this.repository.findGoogleAccount(
+          manager,
+          identity.subject,
+        );
+        let user: UserEntity | null;
+        if (account) {
+          // A provider link is permanent. Never rematch it by a changed email.
+          user = await this.repository.findLockedUserById(
+            manager,
+            account.userId,
+          );
+        } else {
+          user = await this.repository.findLockedUserByEmail(
+            manager,
+            identity.email,
+          );
+          if (user) {
+            throw new ConflictException({
+              code: 'GOOGLE_LINK_REQUIRED',
+              message:
+                'Sign in with your existing password, then link Google to your account.',
+            });
+          }
+          user = await manager.save(
+            UserEntity,
+            manager.create(UserEntity, {
+              email: identity.email,
+              displayName: identity.displayName,
+              passwordHash: null,
+              role: UserRole.AUTHOR,
+              status: UserStatus.ACTIVE,
+            }),
+          );
+          await manager.save(
+            AuthAccountEntity,
+            manager.create(AuthAccountEntity, {
+              userId: user.id,
+              provider: 'google',
+              providerAccountId: identity.subject,
+            }),
+          );
+        }
+        if (!user || user.status !== UserStatus.ACTIVE) {
+          throw new UnauthorizedException('Account is unavailable');
+        }
+        return this.createSession(manager, user.id);
+      });
+    } catch (error) {
+      this.rethrowGoogleConflict(error);
+    }
+  }
+
+  async linkGoogle(userId: string, input: LinkGoogleDto) {
+    const dto = await validateDto(input, LinkGoogleDto);
+    const identity = await this.googleTokens.verify(dto.idToken);
+    try {
+      await this.repository.transaction(async (manager) => {
+        const user = await this.repository.findLockedUserById(manager, userId);
+        if (
+          !user ||
+          user.status !== UserStatus.ACTIVE ||
+          !user.passwordHash ||
+          Buffer.byteLength(dto.currentPassword, 'utf8') > 72 ||
+          !(await bcrypt.compare(dto.currentPassword, user.passwordHash))
+        ) {
+          throw new UnauthorizedException('Current password is incorrect');
+        }
+        const account = await this.repository.findGoogleAccount(
+          manager,
+          identity.subject,
+        );
+        if (account) {
+          if (account.userId !== user.id) {
+            throw new ConflictException(
+              'This Google account is already linked to another user',
+            );
+          }
+          return; // Repeating the same confirmed link is safe.
+        }
+        if (identity.email !== user.email) {
+          throw new BadRequestException(
+            'Google email must match your current account email',
+          );
+        }
+        await manager.save(
+          AuthAccountEntity,
+          manager.create(AuthAccountEntity, {
+            userId: user.id,
+            provider: 'google',
+            providerAccountId: identity.subject,
+          }),
+        );
+      });
+    } catch (error) {
+      this.rethrowGoogleConflict(error);
+    }
+    return { message: 'Google account linked successfully' };
+  }
+
+  private rethrowGoogleConflict(error: unknown): never {
+    if (error instanceof QueryFailedError) {
+      const failure = error.driverError as {
+        code?: string;
+        constraint?: string;
+      };
+      if (
+        failure.code === '23505' &&
+        [
+          'UQ_users_email',
+          'UQ_auth_accounts_provider_identity',
+          'UQ_auth_accounts_user_provider',
+        ].includes(failure.constraint ?? '')
+      ) {
+        throw new ConflictException(
+          'Account or Google link already exists. Sign in again; existing accounts must link Google after password login.',
+        );
+      }
+    }
+    throw error;
   }
 
   async changePassword(userId: string, input: ChangePasswordDto) {
@@ -90,6 +208,7 @@ export class AuthService {
       if (
         !user ||
         user.status !== UserStatus.ACTIVE ||
+        !user.passwordHash ||
         Buffer.byteLength(dto.currentPassword, 'utf8') > 72 ||
         !(await bcrypt.compare(dto.currentPassword, user.passwordHash))
       ) {
@@ -326,6 +445,32 @@ export class AuthService {
       throw error;
     }
   }
+  // Both login methods create exactly the same application session.
+  private async createSession(
+    manager: EntityManager,
+    userId: string,
+  ): Promise<AuthTokens> {
+    const session = Object.assign(new RefreshSessionEntity(), {
+      id: randomUUID(),
+      userId,
+      expiresAt: new Date(Date.now() + SESSION_MILLISECONDS),
+      revokedAt: null,
+    });
+    const refreshToken = this.newRefreshToken(session.id);
+    const accessToken = await this.signAccessToken(session);
+    await manager.save(RefreshSessionEntity, session);
+    await manager.save(
+      RefreshTokenEntity,
+      this.tokenRecord(session.id, refreshToken),
+    );
+    return {
+      accessToken,
+      refreshToken,
+      expiresAt: session.expiresAt,
+      expiresIn: ACCESS_TOKEN_SECONDS,
+    };
+  }
+
   private signAccessToken(session: RefreshSessionEntity) {
     return this.jwtService.signAsync(
       { sub: session.userId, sid: session.id },

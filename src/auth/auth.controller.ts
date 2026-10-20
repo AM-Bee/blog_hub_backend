@@ -42,6 +42,8 @@ import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { CookieOriginGuard } from './guards/cookie-origin.guard.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
+import { GoogleLoginDto } from './dto/google-login.dto.js';
+import { LinkGoogleDto } from './dto/link-google.dto.js';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -85,6 +87,49 @@ export class AuthController {
       expires: result.expiresAt,
     });
     return { accessToken: result.accessToken, expiresIn: result.expiresIn };
+  }
+
+  @Post('google')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(CookieOriginGuard)
+  @ApiOperation({
+    summary: 'Verify a Google ID token and create a BlogHub session',
+  })
+  @ApiBody({ type: GoogleLoginDto })
+  @ApiOkResponse({ type: AccessTokenResponseDto })
+  @ApiHeader({
+    name: 'Origin',
+    required: true,
+    example: 'http://localhost:3000',
+  })
+  async googleLogin(
+    @Body(dtoValidationPipe(GoogleLoginDto)) dto: GoogleLoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.authService.googleLogin(dto);
+    response.cookie(REFRESH_COOKIE, result.refreshToken, {
+      ...this.cookieOptions(),
+      expires: result.expiresAt,
+    });
+    return { accessToken: result.accessToken, expiresIn: result.expiresIn };
+  }
+
+  @Post('google/link')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Link Google to your signed-in account using your current password',
+  })
+  @ApiBody({ type: LinkGoogleDto })
+  linkGoogle(
+    @Body(dtoValidationPipe(LinkGoogleDto)) dto: LinkGoogleDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.authService.linkGoogle(request.user.id, dto);
   }
 
   @Post('refresh')

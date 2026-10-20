@@ -49,3 +49,7 @@ The refresh cookie is HttpOnly, SameSite=Lax, scoped to `/api/v1/auth`, and Secu
 Use `@UseGuards(JwtAuthGuard)` for signed-in access. For admin routes, import `AuthModule` in the feature module and use `@UseGuards(JwtAuthGuard, RolesGuard)` with `@Roles(UserRole.ADMIN)`. Roles are read from the current database account rather than trusted from JWT claims.
 
 Rate limiting uses process-local storage for local development; choose shared storage before deploying multiple API instances.
+
+## Google authentication
+
+The existing password endpoints and session flow are unchanged. `POST /auth/google` verifies a Google ID token and creates the same application session. `POST /auth/google/link` requires a signed-in user and their current password to link an existing account. Matching email alone never merges accounts. See [GOOGLE_AUTH.md](GOOGLE_AUTH.md) for setup, request examples, passwordless behavior, and the frontend integration contract.

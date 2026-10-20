@@ -59,3 +59,5 @@ BLOGHUB_RUN_DB_TESTS=1 npm test
 ```
 
 It creates and removes an isolated temporary schema, preserving application tables.
+
+Google provider links in `auth_accounts` are not seeded. Real Google identities must be verified through the Google login/link endpoints; demo accounts remain normal password accounts.

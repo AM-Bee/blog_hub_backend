@@ -13,11 +13,17 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { CookieOriginGuard } from './guards/cookie-origin.guard.js';
 import { PasswordResetMailService } from './password-reset-mail.service.js';
+import { GoogleTokenService } from './google-token.service.js';
+import { AuthAccountEntity } from './entities/auth-account.entity.js';
 
 @Module({
   imports: [
     UsersModule,
-    TypeOrmModule.forFeature([RefreshSessionEntity, RefreshTokenEntity]),
+    TypeOrmModule.forFeature([
+      RefreshSessionEntity,
+      RefreshTokenEntity,
+      AuthAccountEntity,
+    ]),
     JwtModule.registerAsync({
       useFactory: () => ({ secret: authOptions().secret }),
     }),
@@ -29,6 +35,7 @@ import { PasswordResetMailService } from './password-reset-mail.service.js';
     AuthService,
     AuthRepository,
     PasswordResetMailService,
+    GoogleTokenService,
     JwtAuthGuard,
     RolesGuard,
     CookieOriginGuard,

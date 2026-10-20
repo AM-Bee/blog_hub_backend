@@ -99,6 +99,7 @@ export class UsersRepository {
         }
         if (dto.email !== undefined && dto.email !== user.email) {
           if (
+            !user.passwordHash ||
             !dto.currentPassword ||
             Buffer.byteLength(dto.currentPassword, 'utf8') > 72 ||
             !(await bcrypt.compare(dto.currentPassword, user.passwordHash))

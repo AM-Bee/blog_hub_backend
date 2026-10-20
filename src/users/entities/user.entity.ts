@@ -21,8 +21,14 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 254 })
   email: string;
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 60, select: false })
-  passwordHash: string;
+  @Column({
+    name: 'password_hash',
+    type: 'varchar',
+    length: 60,
+    nullable: true,
+    select: false,
+  })
+  passwordHash: string | null;
 
   @Column({
     name: 'password_reset_code_hash',

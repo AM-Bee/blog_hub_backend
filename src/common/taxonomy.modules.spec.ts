@@ -24,6 +24,7 @@ import { UserEntity } from '../users/entities/user.entity.js';
 import { UserRole } from '../users/enums/user-role.enum.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
+import { AuthAccountEntity } from '../auth/entities/auth-account.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { ROLES_KEY } from '../auth/decorators/roles.decorator.js';
@@ -39,6 +40,7 @@ const dataSource = new MetadataDataSource({
     UserEntity,
     RefreshSessionEntity,
     RefreshTokenEntity,
+    AuthAccountEntity,
     CategoryEntity,
     TagEntity,
     BlogEntity,
