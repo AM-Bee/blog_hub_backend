@@ -1,6 +1,6 @@
 # Google login (backend)
 
-Google login adds another way to authenticate the same BlogHub user. Email/password registration and login remain available. NestJS remains the owner of users, roles, permissions, access tokens, and refresh sessions. The frontend/Auth.js integration is not implemented yet.
+Google login adds another way to authenticate the same BlogHub user. Email/password registration and login remain available. NestJS remains the owner of users, roles, permissions, access tokens, and refresh sessions. The Next.js frontend now uses Auth.js for Google OAuth and then establishes the existing NestJS application session. New Google users must choose a password before an account is created.
 
 ## Configuration and database
 
@@ -10,7 +10,7 @@ Set this optional value in local `.env`:
 GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
 ```
 
-Use the same web OAuth client ID that the future Next.js Auth.js Google provider uses. It is an audience identifier, not the Google client secret. The client secret belongs on the Next.js server only. NestJS verifies Google tokens using Google's public keys through `google-auth-library`; no Google client secret is needed here. Missing configuration returns 503 on Google routes without preventing local login or server startup.
+Use the same web OAuth client ID that the Next.js Auth.js Google provider uses. It is an audience identifier, not the Google client secret. The client secret belongs on the Next.js server only. NestJS verifies Google tokens using Google's public keys through `google-auth-library`; no Google client secret is needed here. Missing configuration returns 503 on Google routes without preventing local login or server startup.
 
 The new `auth_accounts` table contains:
 
@@ -51,8 +51,8 @@ Do not send `email`, `name`, `role`, `userId`, a Google access token, or an Auth
 Account resolution is deliberately explicit:
 
 1. If `google` + verified `sub` is already linked, sign in that application user. The link remains authoritative even if their Google or application email later changes; no automatic email updates or account reassignment occur.
-2. If there is no link and no matching normalized email, create an active author with no password, link Google, and create a normal BlogHub session in one transaction.
-3. If there is no link but the email exists, return 409. Do not create a duplicate user or automatically merge accounts.
+2. If there is no link and no matching normalized email, require `password`. Validate it with the existing registration rules, hash it, create an active author, link Google, and create a normal BlogHub session in one transaction. Without a password, return 409 `GOOGLE_REGISTRATION_REQUIRED`; do not create any rows.
+3. If there is no link but the email exists, require the existing password. Without it return 409 `GOOGLE_LINK_REQUIRED`. Verify the hash before adding a provider link to that same user and issuing a session. An incorrect password returns 401. Never replace the password, role, ID, or stories, or create another user.
 4. Disabled linked users cannot sign in. Linking does not enable disabled accounts or change roles.
 
 The existing-email response is:
@@ -60,7 +60,7 @@ The existing-email response is:
 ```json
 {
   "code": "GOOGLE_LINK_REQUIRED",
-  "message": "Sign in with your existing password, then link Google to your account."
+  "message": "Enter your existing password to link Google."
 }
 ```
 
@@ -108,29 +108,36 @@ Linking keeps the existing ID, password, display name, role, content, and sessio
 
 Once linked, either login method reaches the same application account. There is no unlink endpoint in this scope. If the existing password is forgotten, recover it through the current verified email-code flow before linking.
 
-## Passwordless account behavior
+## Prepare the frontend form
+
+`POST /auth/google/prepare`, with the same Origin and `{ "idToken": "..." }`, verifies the Google identity and returns `{ step, email, displayName }`. `step` is `register`, `link`, or `login`. This request creates no users, links, or application sessions. It requires a verified Google token; it is not a public email lookup.
+
+`GET /auth/google/status` requires the current application Bearer token and returns `{ "linked": true }` or `{ "linked": false }` for that user.
+
+For first-time registration or linking from the login screen, send `{ "idToken": "...", "password": "..." }` to `POST /auth/google`. Password confirmation is checked by the frontend Server Action and component; the backend independently enforces password strength on new accounts. Subsequent Google logins need only `idToken`.
+
+## Password behavior
 
 - Local registration still requires a password.
-- Google-created accounts have `password_hash = NULL`; no fake/random password is assigned.
-- Password login and current-password changes return 401 for such accounts, rather than passing null to bcrypt.
-- Display-name editing works normally. Email editing still requires a current local password.
-- A Google-only user can use the existing forgot-password/reset-password email-code flow to establish a password. After that, password login, password changes, and email edits work normally. Password reset revokes existing sessions just as before, but retains the Google link.
+- New Google users must set a password before any user/link/session is written. Both login methods then work for the same account.
+- The nullable hash column remains for compatibility with older Google-only accounts. Existing password hashes are unchanged.
+- An older account with no password can establish one through the existing verified forgot-password/reset-password flow. Password checks safely reject null hashes.
+- Linking requires the existing password only once. Later Google login resolves the permanent provider subject directly.
+- Password changes/resets revoke application sessions and keep the Google link. A fresh, explicit Google OAuth login remains an authorized way to sign in afterward.
 
-## Frontend integration contract (next stage)
+## Frontend integration
 
-1. Auth.js handles the Google OAuth redirect/callback with its OAuth state/nonce/PKCE protections as applicable.
-2. Next.js server code gets Google's `account.id_token` and calls NestJS `/auth/google` over HTTPS in production. Supply the configured frontend Origin. Do not use an arbitrary email received from the browser.
-3. Use a Next.js Server Action or response handler to explicitly copy the backend refresh cookie into the frontend response, following the existing authentication Server Action. A server-side fetch does not automatically set browser cookies. Do not assume an Auth.js callback alone can write the application's browser cookie.
-4. Load the existing application session and `/auth/me`. Continue sending BlogHub Bearer tokens to protected endpoints; renew through existing `/auth/refresh`.
-5. On `GOOGLE_LINK_REQUIRED`, require password sign-in and confirmation, then call `/auth/google/link` with that user's Bearer token and the verified Google ID token.
-6. Never expose the Google ID token, Google client secret, or application refresh token in client-readable Auth.js session JSON, query strings, or logs. Protect the frontend bridge from CSRF and arbitrary redirects. Origin checks alone are not proof of a server-to-server caller; the signed Google token is the backend's identity proof.
-7. Keep the backend session as the application's authority. Auth.js state must not silently recreate a session after logout, password reset, or account disable. Clear temporary Auth.js sign-in state on logout. Do not exchange the same Google ID token on every session read or refresh.
+See [the frontend setup and workflow document](../../blog-hub-frontend/docs/google-login.md).
 
-Google ID tokens are bearer credentials and can be reused until expiry if stolen. Keep them server-side during the handoff and discard them once the application session is established. There is no custom Google token replay database or Google API/offline-access integration in this version.
+Auth.js performs the OAuth transaction. Its encrypted HttpOnly cookie holds the Google ID token for at most ten minutes, solely for the server-side handoff. It does not grant application access. The Google completion page reads the verified account step and asks for a password only for registration or first-time linking. A Server Action re-verifies the token at NestJS and copies Nest's refresh cookie into the frontend response. Server-side fetch alone cannot set a browser cookie.
+
+On successful completion, the temporary Google cookie is cleared and Redux receives the existing application user/session. The app continues to use Nest's Bearer JWT, refresh rotation, permissions, and logout. Google ID tokens and refresh tokens never enter client-readable Auth.js session JSON. The completion GET does not create sessions; only the explicit POST/Server Action completes sign-in. No Google token is re-exchanged during ordinary session reads or refreshes.
+
+Google ID tokens are reusable bearer credentials until expiry if stolen. Keep them out of logs and URLs. CORS/Origin checks are not identity proof: Nest independently verifies Google's signature, issuer, audience, expiry, subject and verified email. Account linking additionally requires the local password. Google client secrets stay on Next.js only. No Google API refresh tokens, extra user table, or database adapter is needed.
 
 ## Postman and verification
 
-You can test the request format now, but successful Google authentication requires a real Google OAuth ID token issued for `GOOGLE_CLIENT_ID`. Plain email, an invented JWT, or your existing BlogHub JWT will not work. The Auth.js frontend that obtains this token is the next stage.
+You can test the request format now, but successful Google authentication requires a real Google OAuth ID token issued for `GOOGLE_CLIENT_ID`. Plain email, an invented JWT, or your existing BlogHub JWT will not work. The frontend obtains this token after its Google OAuth callback; configure its local credentials before testing.
 
 | Check                                                          | Expected                                         |
 | -------------------------------------------------------------- | ------------------------------------------------ |
@@ -144,6 +151,7 @@ You can test the request format now, but successful Google authentication requir
 | New link with a different email                                | 400                                              |
 | Google identity already linked elsewhere                       | 409                                              |
 | Disabled linked account                                        | 401                                              |
+| First-time new user without a password                        | 409, no account created                          |
 | Successful Google login                                        | 200, normal access JWT + HttpOnly refresh cookie |
 
 Run:

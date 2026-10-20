@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, Length } from 'class-validator';
+import { IsString, Length, ValidateIf } from 'class-validator';
 
 export class GoogleLoginDto {
   @ApiProperty({
@@ -10,4 +10,10 @@ export class GoogleLoginDto {
   @IsString()
   @Length(1, 10000)
   idToken: string;
+
+  @ApiProperty({ required: false, writeOnly: true })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @Length(1, 72)
+  password?: string;
 }

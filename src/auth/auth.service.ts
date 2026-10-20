@@ -14,7 +14,7 @@ import { AuthRepository } from './auth.repository.js';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service.js';
-import type { CreateUserDto } from '../users/dto/create-user.dto.js';
+import { CreateUserDto } from '../users/dto/create-user.dto.js';
 import type { LoginDto } from './dto/login.dto.js';
 import { RefreshSessionEntity } from './entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
@@ -97,22 +97,46 @@ export class AuthService {
             identity.email,
           );
           if (user) {
-            throw new ConflictException({
-              code: 'GOOGLE_LINK_REQUIRED',
-              message:
-                'Sign in with your existing password, then link Google to your account.',
-            });
+            if (!dto.password) {
+              throw new ConflictException({
+                code: 'GOOGLE_LINK_REQUIRED',
+                message: 'Enter your existing password to link Google.',
+              });
+            }
+            if (
+              user.status !== UserStatus.ACTIVE ||
+              !user.passwordHash ||
+              Buffer.byteLength(dto.password, 'utf8') > 72 ||
+              !(await bcrypt.compare(dto.password, user.passwordHash))
+            ) {
+              throw new UnauthorizedException('Invalid email or password');
+            }
+          } else {
+            if (!dto.password) {
+              throw new ConflictException({
+                code: 'GOOGLE_REGISTRATION_REQUIRED',
+                message: 'Set a password to complete your account.',
+              });
+            }
+            const registration = await validateDto(
+              {
+                email: identity.email,
+                displayName: identity.displayName,
+                password: dto.password,
+              },
+              CreateUserDto,
+            );
+            user = await manager.save(
+              UserEntity,
+              manager.create(UserEntity, {
+                email: registration.email,
+                displayName: registration.displayName,
+                passwordHash: await bcrypt.hash(registration.password, 10),
+                role: UserRole.AUTHOR,
+                status: UserStatus.ACTIVE,
+              }),
+            );
           }
-          user = await manager.save(
-            UserEntity,
-            manager.create(UserEntity, {
-              email: identity.email,
-              displayName: identity.displayName,
-              passwordHash: null,
-              role: UserRole.AUTHOR,
-              status: UserStatus.ACTIVE,
-            }),
-          );
           await manager.save(
             AuthAccountEntity,
             manager.create(AuthAccountEntity, {
@@ -130,6 +154,37 @@ export class AuthService {
     } catch (error) {
       this.rethrowGoogleConflict(error);
     }
+  }
+
+  async prepareGoogle(input: GoogleLoginDto) {
+    const dto = await validateDto(input, GoogleLoginDto);
+    const identity = await this.googleTokens.verify(dto.idToken);
+    return this.repository.transaction(async (manager) => {
+      const account = await this.repository.findGoogleAccount(
+        manager,
+        identity.subject,
+      );
+      const user = account
+        ? await this.repository.findLockedUserById(manager, account.userId)
+        : await this.repository.findLockedUserByEmail(manager, identity.email);
+      if ((account && !user) || (user && user.status !== UserStatus.ACTIVE)) {
+        throw new UnauthorizedException('Account is unavailable');
+      }
+      return {
+        step: account ? 'login' : user ? 'link' : 'register',
+        email: identity.email,
+        displayName: identity.displayName,
+      };
+    });
+  }
+
+  async googleStatus(userId: string) {
+    return this.repository.transaction(async (manager) => ({
+      linked: await manager.existsBy(AuthAccountEntity, {
+        userId,
+        provider: 'google',
+      }),
+    }));
   }
 
   async linkGoogle(userId: string, input: LinkGoogleDto) {

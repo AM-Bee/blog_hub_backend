@@ -89,6 +89,25 @@ export class AuthController {
     return { accessToken: result.accessToken, expiresIn: result.expiresIn };
   }
 
+  @Post('google/prepare')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(CookieOriginGuard)
+  @ApiOperation({
+    summary:
+      'Verify Google and choose login, linking, or password setup without creating an account',
+  })
+  prepareGoogle(@Body(dtoValidationPipe(GoogleLoginDto)) dto: GoogleLoginDto) {
+    return this.authService.prepareGoogle(dto);
+  }
+
+  @Get('google/status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  googleStatus(@Req() request: AuthenticatedRequest) {
+    return this.authService.googleStatus(request.user.id);
+  }
+
   @Post('google')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

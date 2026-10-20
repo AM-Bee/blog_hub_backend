@@ -52,13 +52,18 @@ const identities: Record<
     email: 'race@example.com',
     displayName: 'Concurrent Writer',
   },
+  direct: {
+    subject: 'google-direct',
+    email: 'direct@example.com',
+    displayName: 'Direct Google',
+  },
 };
 const origin = 'http://localhost:3000';
-const googleLogin = (idToken = 'fresh') =>
+const googleLogin = (idToken = 'fresh', password?: string) =>
   request(app.getHttpServer())
     .post('/api/v1/auth/google')
     .set('Origin', origin)
-    .send({ idToken });
+    .send({ idToken, ...(password ? { password } : {}) });
 const login = (email: string, password = 'Password123!') =>
   request(app.getHttpServer())
     .post('/api/v1/auth/login')
@@ -127,8 +132,20 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       vi.unstubAllEnvs();
     });
 
-    it('registers a passwordless author and returns safe JSON plus an HttpOnly refresh cookie', async () => {
-      const response = await googleLogin().expect(200);
+    it('requires a password before registration and returns normal tokens plus an HttpOnly refresh cookie', async () => {
+      const prepared = await request(app.getHttpServer())
+        .post('/api/v1/auth/google/prepare')
+        .set('Origin', origin)
+        .send({ idToken: 'fresh' })
+        .expect(200);
+      expect(prepared.body.step).toBe('register');
+      await googleLogin().expect(409);
+      expect(
+        await database
+          .getRepository(UserEntity)
+          .countBy({ email: identities.fresh.email }),
+      ).toBe(0);
+      const response = await googleLogin('fresh', 'Password123!').expect(200);
       expect(response.body).toEqual({
         accessToken: expect.any(String),
         expiresIn: 3600,
@@ -147,8 +164,9 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         .addSelect('user.passwordHash')
         .where('user.id = :id', { id: profile.body.id })
         .getOneOrFail();
-      expect(user.passwordHash).toBeNull();
-      await login(user.email).expect(401);
+      expect(user.passwordHash).toMatch(/^\$2/);
+      await login(user.email).expect(200);
+      await googleLogin().expect(200);
     });
 
     it('uses refresh rotation and invalidates access tokens on logout', async () => {
@@ -220,7 +238,37 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       await me(google.body.accessToken).expect(401);
     });
 
-    it('allows Google-only accounts to establish a password through verified recovery', async () => {
+    it('links from the Google sign-in form only after existing-password proof', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/register')
+        .send({
+          email: identities.direct.email,
+          displayName: 'Existing Writer',
+          password: 'Password123!',
+        })
+        .expect(201);
+      const local = await login(identities.direct.email).expect(200);
+      const before = await me(local.body.accessToken).expect(200);
+      await googleLogin('direct', 'incorrect').expect(401);
+      expect(
+        await database
+          .getRepository(AuthAccountEntity)
+          .countBy({ providerAccountId: identities.direct.subject }),
+      ).toBe(0);
+      const linked = await googleLogin('direct', 'Password123!').expect(200);
+      expect((await me(linked.body.accessToken).expect(200)).body).toEqual(
+        before.body,
+      );
+      await request(app.getHttpServer())
+        .get('/api/v1/auth/google/status')
+        .set('Authorization', `Bearer ${linked.body.accessToken}`)
+        .expect(200)
+        .expect({ linked: true });
+      await googleLogin('direct').expect(200);
+      await login(identities.direct.email).expect(200);
+    });
+
+    it('allows Google-linked accounts to reset their password without losing the link', async () => {
       const response = await googleLogin().expect(200);
       await request(app.getHttpServer())
         .post('/api/v1/auth/forgot-password')
@@ -242,8 +290,8 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
 
     it('prevents duplicate accounts during simultaneous first logins', async () => {
       const results = await Promise.all([
-        googleLogin('race'),
-        googleLogin('race'),
+        googleLogin('race', 'Password123!'),
+        googleLogin('race', 'Password123!'),
       ]);
       expect(
         results.every((result) => [200, 409].includes(result.status)),

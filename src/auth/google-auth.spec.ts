@@ -70,16 +70,25 @@ beforeEach(() => {
   );
 });
 
-it('creates a passwordless author, provider link, and the normal hashed refresh session', async () => {
-  const result = await service.googleLogin({ idToken: 'google-id-token' });
+it('creates a password-enabled author, provider link, and the normal hashed refresh session', async () => {
+  const result = await service.googleLogin({
+    idToken: 'google-id-token',
+    password: 'Password123!',
+  });
   expect(manager.save).toHaveBeenCalledWith(
     UserEntity,
     expect.objectContaining({
       email: identity.email,
-      passwordHash: null,
+      passwordHash: expect.stringMatching(/^\$2/),
       role: UserRole.AUTHOR,
       status: UserStatus.ACTIVE,
     }),
+  );
+  const savedUser = manager.save.mock.calls.find(
+    ([entity]) => entity === UserEntity,
+  )![1];
+  expect(await bcrypt.compare('Password123!', savedUser.passwordHash)).toBe(
+    true,
   );
   expect(manager.save).toHaveBeenCalledWith(
     AuthAccountEntity,
@@ -105,6 +114,64 @@ it('creates a passwordless author, provider link, and the normal hashed refresh 
     expiresIn: 3600,
   });
   expect(result.refreshToken).toMatch(/^[a-f0-9-]{36}\.[A-Za-z0-9_-]{43}$/);
+});
+
+it('does not create an account or session before the new user sets a password', async () => {
+  const failure = await service
+    .googleLogin({ idToken: 'token' })
+    .catch((error) => error);
+  expect(failure.getResponse()).toMatchObject({
+    code: 'GOOGLE_REGISTRATION_REQUIRED',
+  });
+  expect(manager.save).not.toHaveBeenCalled();
+});
+
+it('uses registration password rules and rejects weak or oversized UTF-8 passwords', async () => {
+  for (const password of ['short', 'က'.repeat(25)]) {
+    await expect(
+      service.googleLogin({ idToken: 'token', password }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  }
+  expect(manager.save).not.toHaveBeenCalled();
+});
+
+it('links an existing email after password proof and keeps its admin role and password', async () => {
+  repository.findLockedUserByEmail.mockResolvedValue(user());
+  await service.googleLogin({ idToken: 'token', password: 'Password123!' });
+  expect(manager.save).not.toHaveBeenCalledWith(UserEntity, expect.anything());
+  expect(manager.save).toHaveBeenCalledWith(
+    AuthAccountEntity,
+    expect.objectContaining({ userId: 'existing-user' }),
+  );
+  expect(jwt.signAsync).toHaveBeenCalledWith(
+    { sub: 'existing-user', sid: expect.any(String) },
+    expect.anything(),
+  );
+});
+
+it('never links an existing email when the password is wrong', async () => {
+  repository.findLockedUserByEmail.mockResolvedValue(user());
+  await expect(
+    service.googleLogin({ idToken: 'token', password: 'incorrect' }),
+  ).rejects.toBeInstanceOf(UnauthorizedException);
+  expect(manager.save).not.toHaveBeenCalled();
+});
+
+it('prepares new, existing, and linked accounts without writing or creating sessions', async () => {
+  expect(await service.prepareGoogle({ idToken: 'token' })).toMatchObject({
+    step: 'register',
+    email: identity.email,
+  });
+  repository.findLockedUserByEmail.mockResolvedValue(user());
+  expect(await service.prepareGoogle({ idToken: 'token' })).toMatchObject({
+    step: 'link',
+  });
+  repository.findGoogleAccount.mockResolvedValue({ userId: 'existing-user' });
+  expect(await service.prepareGoogle({ idToken: 'token' })).toMatchObject({
+    step: 'login',
+  });
+  expect(manager.save).not.toHaveBeenCalled();
+  expect(jwt.signAsync).not.toHaveBeenCalled();
 });
 
 it('uses an existing provider link without rematching or overwriting the application account', async () => {
