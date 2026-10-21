@@ -1,3 +1,6 @@
+import { ChatModule } from '../chat/chat.module.js';
+import { ConversationEntity } from '../chat/entities/conversation.entity.js';
+import { MessageEntity } from '../chat/entities/message.entity.js';
 import { BlogsModule } from '../blogs/blogs.module.js';
 import { AdminUsersModule } from '../admin-users/admin-users.module.js';
 import { BlogEntity } from '../blogs/entities/blog.entity.js';
@@ -50,6 +53,8 @@ const dataSource = new MetadataDataSource({
     BlogTagEntity,
     BlogAuditLogEntity,
     NotificationEntity,
+    ConversationEntity,
+    MessageEntity,
   ],
 });
 @Global()
@@ -150,6 +155,7 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
         BlogsModule,
         AdminUsersModule,
         NotificationsModule,
+        ChatModule,
       ],
     }).compile();
     const app = module.createNestApplication();
@@ -194,6 +200,15 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       expect(
         document.paths['/api/v1/me/notifications/{id}/read'].patch,
       ).toBeDefined();
+      for (const method of ['get', 'post'] as const) {
+        expect(
+          document.paths['/api/v1/chat/conversations'][method]?.security,
+        ).toEqual([{ bearer: [] }]);
+      }
+      expect(
+        document.paths['/api/v1/chat/conversations/{id}/messages'].get
+          ?.security,
+      ).toEqual([{ bearer: [] }]);
       expect(document.components?.schemas?.UserResponseDto).toMatchObject({
         properties: { role: { enum: ['author', 'admin'] } },
       });

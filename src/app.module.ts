@@ -10,6 +10,7 @@ import { TagsModule } from './tags/tags.module.js';
 import { BlogsModule } from './blogs/blogs.module.js';
 import { AdminUsersModule } from './admin-users/admin-users.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { ChatModule } from './chat/chat.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     BlogsModule,
     AdminUsersModule,
     NotificationsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
