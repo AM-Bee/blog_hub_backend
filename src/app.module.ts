@@ -9,6 +9,7 @@ import { CategoriesModule } from './categories/categories.module.js';
 import { TagsModule } from './tags/tags.module.js';
 import { BlogsModule } from './blogs/blogs.module.js';
 import { AdminUsersModule } from './admin-users/admin-users.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AdminUsersModule } from './admin-users/admin-users.module.js';
     TagsModule,
     BlogsModule,
     AdminUsersModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

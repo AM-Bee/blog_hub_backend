@@ -42,13 +42,14 @@ src/
 │   ├── blogs.module.ts
 │   └── blog-image.store.ts
 ├── admin-users/
+├── notifications/
 ├── asset/images/
 ├── app.module.ts
 ├── main.ts
 └── seed.ts
 ```
 
-Categories, Tags, and Admin Users have the same controller/service/repository/module pattern, with DTOs and interfaces. TypeORM entities stay with the owning feature. Admin Users reuses the Users entity, so it has no separate entity. Users is an internal module: self-service HTTP routes remain in Auth; admin routes remain in Admin Users.
+Categories, Tags, Admin Users, and Notifications have the same controller/service/repository/module pattern, with DTOs and interfaces. TypeORM entities stay with the owning feature. Admin Users reuses the Users entity, so it has no separate entity. Users is an internal module: self-service HTTP routes remain in Auth; admin routes remain in Admin Users.
 
 ## Responsibilities
 

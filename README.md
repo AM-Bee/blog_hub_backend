@@ -136,3 +136,5 @@ Admin user listing, details, and account status management: [docs/USER_MANAGEMEN
 Admin publishing/unpublishing and author publication blocks: [docs/BLOG_MODERATION.md](docs/BLOG_MODERATION.md).
 
 Post edit/delete history and the two personal audit endpoints: [docs/BLOG_AUDIT_LOGS.md](docs/BLOG_AUDIT_LOGS.md).
+
+In-app notifications for admin post moderation/deletion: [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).

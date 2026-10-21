@@ -3,6 +3,8 @@ import { AdminUsersModule } from '../admin-users/admin-users.module.js';
 import { BlogEntity } from '../blogs/entities/blog.entity.js';
 import { BlogTagEntity } from '../blogs/entities/blog-tag.entity.js';
 import { BlogAuditLogEntity } from '../blogs/entities/blog-audit-log.entity.js';
+import { NotificationEntity } from '../notifications/entities/notification.entity.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import {
   Global,
   Module,
@@ -47,6 +49,7 @@ const dataSource = new MetadataDataSource({
     BlogEntity,
     BlogTagEntity,
     BlogAuditLogEntity,
+    NotificationEntity,
   ],
 });
 @Global()
@@ -146,6 +149,7 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
         TagsModule,
         BlogsModule,
         AdminUsersModule,
+        NotificationsModule,
       ],
     }).compile();
     const app = module.createNestApplication();
@@ -181,6 +185,15 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       expect(document.paths['/api/v1/admin/users'].get?.security).toEqual([
         { bearer: [] },
       ]);
+      expect(document.paths['/api/v1/me/notifications'].get?.security).toEqual([
+        { bearer: [] },
+      ]);
+      expect(
+        document.paths['/api/v1/me/notifications/read-all'].patch,
+      ).toBeDefined();
+      expect(
+        document.paths['/api/v1/me/notifications/{id}/read'].patch,
+      ).toBeDefined();
       expect(document.components?.schemas?.UserResponseDto).toMatchObject({
         properties: { role: { enum: ['author', 'admin'] } },
       });

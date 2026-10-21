@@ -157,3 +157,7 @@ Implemented in the existing Auth module: Google ID-token verification, `auth_acc
 ## Blog audit history
 
 Agreed scope: one `blog_audit_logs` table within the existing Blogs module, plus protected `GET /me/blog-audit-logs` and `GET /me/blog-audit-logs/:id`. Authors see only their own actions. Record actor ID and post author ID, old/new values for edits and publication changes, and a snapshot before deletion. Preserve records after post deletion, and write the log in the same transaction as the mutation. No separate audit module or admin audit endpoints in the agreed first version. Implemented in the existing Blogs module. No-op updates are skipped; list responses contain summaries and detail responses include old/new values or a deletion snapshot. See `docs/BLOG_AUDIT_LOGS.md`.
+
+## In-app author notifications
+
+Implemented one `notifications` table and a small Notifications module. Admin unpublishing/blocking or deleting another user's post notifies the owner; unchanged moderation and self-actions do not. The notification, post mutation, and audit record share one transaction. Protected `GET /me/notifications` returns paginated notifications plus the total unread count; `PATCH /me/notifications/:id/read` and `PATCH /me/notifications/read-all` mark only the current user's notifications as read. Deleted-post notifications retain the title and historical blog ID. No frontend, email, queues, or WebSockets were added. See `docs/NOTIFICATIONS.md`.

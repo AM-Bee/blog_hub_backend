@@ -83,3 +83,7 @@ Unit tests cover permissions, blocked edits/publishing, flag tampering, and imag
 ```bash
 BLOGHUB_RUN_DB_TESTS=1 npm test -- src/blogs/blogs.moderation.postgres.spec.ts
 ```
+
+## Author notifications
+
+Unpublishing or first blocking another user's post creates an in-app notification for its owner. Repeating an unchanged blocked-draft action does not notify again. Admin deletion also notifies the owner; admin self-actions do not. The post change, audit record, and notification share one transaction. See [NOTIFICATIONS.md](NOTIFICATIONS.md).

@@ -34,6 +34,8 @@ import { validateDto } from '../common/validation.utils.js';
 import { taxonomySlug } from '../common/taxonomy.utils.js';
 import { BlogImageStore } from './blog-image.store.js';
 import { BlogAuditLogEntity } from './entities/blog-audit-log.entity.js';
+import { NotificationEntity } from '../notifications/entities/notification.entity.js';
+import { NotificationType } from '../notifications/enums/notification-type.enum.js';
 import { BlogAuditAction } from './enums/blog-audit-action.enum.js';
 import { ListBlogAuditLogsQueryDto } from './dto/list-blog-audit-logs-query.dto.js';
 import type {
@@ -234,6 +236,20 @@ export class BlogsRepository {
         before,
         await this.auditSnapshot(manager, id),
       );
+      if (
+        blog.authorId !== user.id &&
+        dto.status === BlogStatus.DRAFT &&
+        (before.status !== BlogStatus.DRAFT || !before.publicationBlocked)
+      ) {
+        await manager.insert(NotificationEntity, {
+          userId: blog.authorId,
+          type: NotificationType.POST_UNPUBLISHED,
+          blogId: blog.id,
+          blogTitle: blog.title,
+          message: `An admin unpublished your post "${blog.title}". You can edit it, but only an admin can publish it again.`,
+          readAt: null,
+        });
+      }
     });
     return this.findDetail(id);
   }
@@ -340,6 +356,16 @@ export class BlogsRepository {
       this.assertOwnerOrAdmin(blog, user);
       const before = await this.auditSnapshot(manager, id);
       await this.recordAudit(manager, user, before, null);
+      if (user.role === UserRole.ADMIN && blog.authorId !== user.id) {
+        await manager.insert(NotificationEntity, {
+          userId: blog.authorId,
+          type: NotificationType.POST_DELETED,
+          blogId: blog.id,
+          blogTitle: blog.title,
+          message: `An admin deleted your post "${blog.title}".`,
+          readAt: null,
+        });
+      }
       await manager.delete(BlogEntity, id);
     });
   }
