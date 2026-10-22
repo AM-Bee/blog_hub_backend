@@ -34,11 +34,13 @@ import { ConversationResponseDto } from './dto/conversation-response.dto.js';
 @UseGuards(JwtAuthGuard)
 @Controller('chat')
 export class ChatController {
+  /** Nest supplies the service used by these protected REST endpoints. */
   constructor(
     @Inject(ChatService)
     private readonly chatService: ChatService,
   ) {}
 
+  /** Find or start a conversation with the recipient; the sender comes from the signed-in user. */
   @Post('conversations')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Find or create a private conversation' })
@@ -51,6 +53,7 @@ export class ChatController {
     return this.chatService.findOrCreate(request.user.id, dto);
   }
 
+  /** Return one page of the signed-in user's conversations, including latest messages and unread counts. */
   @Get('conversations')
   @ApiOperation({
     summary: 'List your private conversations, most recently updated first',
@@ -64,6 +67,7 @@ export class ChatController {
     return this.chatService.findMine(request.user.id, query);
   }
 
+  /** Load a page of message history; the repository rejects users outside the conversation. */
   @Get('conversations/:id/messages')
   @ApiOperation({
     summary: 'Read message history, newest first (createdAt then ID)',

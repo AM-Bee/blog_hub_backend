@@ -142,3 +142,5 @@ In-app notifications for admin post moderation/deletion: [docs/NOTIFICATIONS.md]
 Private 1-to-1 chat, Phases 1–4 complete (database, protected REST endpoints, authenticated Socket.IO events, and final review): [docs/CHAT.md](docs/CHAT.md). Chat tables require `npm run migration:run`, including in development.
 
 Chat final review, verified tests, and deployment limits: [docs/CHAT_PHASE4_REVIEW.md](docs/CHAT_PHASE4_REVIEW.md).
+
+Chat code study guide — file responsibilities, every function, and message flow: [docs/CHAT_STUDY_GUIDE.md](docs/CHAT_STUDY_GUIDE.md).

@@ -54,6 +54,7 @@ export class ConversationEntity {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
+  /** Lowercase and sort participants before entity insertion so either user order represents the same pair. */
   @BeforeInsert()
   normalizeParticipants(): void {
     // UUIDs have a consistent lowercase representation, so either input order gives the same pair.

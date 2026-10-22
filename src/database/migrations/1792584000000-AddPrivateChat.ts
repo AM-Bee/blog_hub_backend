@@ -1,6 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddPrivateChat1792584000000 implements MigrationInterface {
+  /** Create the chat tables, indexes, and triggers that enforce valid participants and sender membership. */
   async up(queryRunner: QueryRunner): Promise<void> {
     const schema = queryRunner.connection.driver.escape(
       (await queryRunner.getCurrentSchema()) ?? 'public',
@@ -82,6 +83,7 @@ export class AddPrivateChat1792584000000 implements MigrationInterface {
       FOR EACH ROW EXECUTE FUNCTION chat_keep_participants()`);
   }
 
+  /** Remove the chat tables and trigger functions when reverting; stored chat history is deleted too. */
   async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query('DROP TABLE chat_messages');
     await queryRunner.query('DROP TABLE chat_conversations');

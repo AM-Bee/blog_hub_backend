@@ -1,5 +1,7 @@
 # Private chat backend — database, REST, and Socket.IO
 
+Study the source file by file and function by function: [CHAT_STUDY_GUIDE.md](CHAT_STUDY_GUIDE.md).
+
 All four backend phases are complete (Phase 4 final review: [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md)): database, protected REST API, and authenticated Socket.IO messaging. ChatModule reuses the existing JWT/session authentication. No frontend code, Redis, queues, or additional authentication system is included.
 
 ## Existing backend integration

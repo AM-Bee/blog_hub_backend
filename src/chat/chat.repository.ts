@@ -24,11 +24,13 @@ import { ConversationEventDto } from './dto/conversation-event.dto.js';
 
 @Injectable()
 export class ChatRepository {
+  /** Receive the TypeORM conversation repository; its manager also accesses users and messages. */
   constructor(
     @InjectRepository(ConversationEntity)
     private readonly conversations: Repository<ConversationEntity>,
   ) {}
 
+  /** Normalize the participant pair and reuse its conversation; handle concurrent duplicate inserts safely. */
   async findOrCreate(
     userId: string,
     input: CreateConversationDto,
@@ -84,6 +86,7 @@ export class ChatRepository {
     }
   }
 
+  /** Load the conversation or return 404, then reject nonparticipants with 403. */
   async findForUser(id: string, userId: string): Promise<ConversationEntity> {
     const conversation = await this.conversations.findOneBy({ id });
     if (!conversation) {
@@ -93,6 +96,7 @@ export class ChatRepository {
     return conversation;
   }
 
+  /** Check membership and return newest-first history with pagination and explicit message fields. */
   async findMessages(
     id: string,
     userId: string,
@@ -117,6 +121,7 @@ export class ChatRepository {
     };
   }
 
+  /** Format one conversation using the same safe summary builder used for conversation lists. */
   async toResponse(
     conversation: ConversationEntity,
     userId: string,
@@ -125,6 +130,7 @@ export class ChatRepository {
     return response;
   }
 
+  /** Select conversations containing this user, paginate them, and add their public summaries. */
   async findMine(
     userId: string,
     input: ListConversationsQueryDto,
@@ -146,6 +152,7 @@ export class ChatRepository {
     };
   }
 
+  /** Reject access unless the user is one of the two participants; admins have no bypass. */
   private assertParticipant(conversation: ConversationEntity, userId: string) {
     const currentUserId = userId.toLowerCase();
     if (
@@ -158,6 +165,7 @@ export class ChatRepository {
     }
   }
 
+  /** Batch-load public users, latest messages, and received unread counts for a whole page. */
   private async toResponses(
     conversations: ConversationEntity[],
     userId: string,
@@ -221,6 +229,7 @@ export class ChatRepository {
     });
   }
 
+  /** Copy only the message fields clients may receive, excluding loaded user and conversation relations. */
   private messageResponse(message: MessageEntity): MessageResponseDto {
     return {
       id: message.id,
@@ -233,6 +242,10 @@ export class ChatRepository {
     };
   }
 
+  /**
+   * Lock the conversation, check membership, and save the message plus timestamp in one transaction.
+   * Matching retries return the original message with created=false so the gateway does not emit it again.
+   */
   async saveMessage(userId: string, input: SendMessageDto) {
     const dto = await validateDto(input, SendMessageDto);
     const senderId = userId.toLowerCase();
@@ -306,6 +319,10 @@ export class ChatRepository {
     });
   }
 
+  /**
+   * Lock and authorize the conversation, then mark only received unread messages as read.
+   * Return the reader, other participant, and changed-row count for the gateway's read receipt.
+   */
   async markMessagesRead(userId: string, input: ConversationEventDto) {
     const dto = await validateDto(input, ConversationEventDto);
     const readerId = userId.toLowerCase();

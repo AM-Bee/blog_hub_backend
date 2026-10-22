@@ -86,11 +86,16 @@ export class ChatGateway
   >();
   private rateCleanup?: ReturnType<typeof setInterval>;
 
+  /** Reuse existing authentication and the chat service; the gateway does not issue its own tokens. */
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(ChatService) private readonly chatService: ChatService,
   ) {}
 
+  /**
+   * Install connection authentication and rate-bucket cleanup when Nest initializes the namespace.
+   * Store the verified identity, access token, and expiry on each accepted socket.
+   */
   afterInit(server: Namespace) {
     this.rateCleanup = setInterval(() => {
       for (const [userId, bucket] of this.rateLimits) {
@@ -128,6 +133,7 @@ export class ChatGateway
     });
   }
 
+  /** Join this user's private room and start periodic session checks plus a token-expiry timeout. */
   async handleConnection(socket: ChatSocket) {
     if (socket.data.expiresAt <= Date.now()) {
       socket.disconnect(true);
@@ -155,6 +161,7 @@ export class ChatGateway
     this.authTimers.set(socket.id, { session, expiry });
   }
 
+  /** Stop this socket's authentication timers; keep the user quota so reconnects cannot reset it. */
   handleDisconnect(socket: ChatSocket) {
     const timers = this.authTimers.get(socket.id);
     if (timers) {
@@ -164,6 +171,7 @@ export class ChatGateway
     }
   }
 
+  /** Clear all chat timers and in-memory counters when Nest shuts down the module. */
   onModuleDestroy() {
     for (const timers of this.authTimers.values()) {
       clearInterval(timers.session);
@@ -174,6 +182,7 @@ export class ChatGateway
     this.rateLimits.clear();
   }
 
+  /** Validate and save a message, notify the other participant only for a new insert, and acknowledge the sender. */
   @SubscribeMessage('message:send')
   async sendMessage(
     @ConnectedSocket() socket: ChatSocket,
@@ -199,6 +208,7 @@ export class ChatGateway
     }
   }
 
+  /** Mark the signed-in user's received messages read; notify the other participant only when rows change. */
   @SubscribeMessage('message:read')
   async readMessages(
     @ConnectedSocket() socket: ChatSocket,
@@ -229,6 +239,7 @@ export class ChatGateway
     }
   }
 
+  /** Handle typing:start through the shared membership-checked typing function. */
   @SubscribeMessage('typing:start')
   typingStart(
     @ConnectedSocket() socket: ChatSocket,
@@ -237,6 +248,7 @@ export class ChatGateway
     return this.typing(socket, input, 'typing:start');
   }
 
+  /** Handle typing:stop so the other participant's client can hide its typing indicator. */
   @SubscribeMessage('typing:stop')
   typingStop(
     @ConnectedSocket() socket: ChatSocket,
@@ -245,6 +257,10 @@ export class ChatGateway
     return this.typing(socket, input, 'typing:stop');
   }
 
+  /**
+   * Check credentials, quota, and conversation membership before forwarding a temporary typing event.
+   * Typing is never stored in the database.
+   */
   private async typing(
     socket: ChatSocket,
     input: unknown,
@@ -273,6 +289,10 @@ export class ChatGateway
     }
   }
 
+  /**
+   * Recheck the JWT/session/account and verify socket identity and expiry before and after awaiting auth.
+   * Disconnect invalid sockets instead of allowing further operations or private delivery.
+   */
   private async authenticateSocket(socket: ChatSocket): Promise<string> {
     try {
       if (!socket.connected || socket.data.expiresAt <= Date.now()) {
@@ -296,6 +316,10 @@ export class ChatGateway
     }
   }
 
+  /**
+   * Find the recipient's connected tabs/devices and reauthenticate each before private delivery.
+   * Offline or invalid recipients receive no live event; saved messages remain in history.
+   */
   private async emitToUser(userId: string, notification: ChatEvent) {
     const ids = this.server.adapter.rooms.get(`user:${userId}`);
     if (!ids) return;
@@ -315,6 +339,7 @@ export class ChatGateway
     );
   }
 
+  /** Enforce a shared per-user minute window: 30 send attempts and 120 total chat-event attempts. */
   private checkRateLimit(userId: string, sending = false) {
     let bucket = this.rateLimits.get(userId);
     if (!bucket || bucket.resetAt <= Date.now()) {
@@ -333,6 +358,7 @@ export class ChatGateway
     if (sending) bucket.messages++;
   }
 
+  /** Reject null, arrays, and primitive payloads before DTO field validation. */
   private objectPayload(input: unknown): object {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
       throw new BadRequestException('Payload must be a JSON object');
@@ -340,6 +366,7 @@ export class ChatGateway
     return input;
   }
 
+  /** Convert expected exceptions into typed error acknowledgements and hide unexpected server details. */
   private errorAck(error: unknown): ChatAck<never> {
     if (!(error instanceof HttpException) || error.getStatus() >= 500) {
       return {
