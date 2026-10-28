@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io-client';
 import type { ChatAck } from './interface/chat-ack.interface.js';
 import type {
   MessageSent,
+  MessageDeleted,
   ReadReceipt,
   TypingEvent,
 } from './interface/chat-event.interface.js';
@@ -28,6 +29,7 @@ import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
 import { AuthAccountEntity } from '../auth/entities/auth-account.entity.js';
 import { AddPrivateChat1792584000000 } from '../database/migrations/1792584000000-AddPrivateChat.js';
+import { AddMessageDeletion1793145600000 } from '../database/migrations/1793145600000-AddMessageDeletion.js';
 
 const schema = `chat_rest_test_${randomUUID().replaceAll('-', '')}`;
 let database: DataSource;
@@ -167,6 +169,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       try {
         await runner.query(`SET LOCAL search_path TO "${schema}", public`);
         await new AddPrivateChat1792584000000().up(runner);
+        await new AddMessageDeletion1793145600000().up(runner);
         await runner.commitTransaction();
       } catch (error) {
         await runner.rollbackTransaction();
@@ -350,6 +353,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           'content',
           'isRead',
           'createdAt',
+          'deletedAt',
         ].sort(),
       );
       const bobResponse = (await list(bobToken).expect(200)).body;
@@ -949,6 +953,299 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           'Authentication failed',
         );
       }
+    });
+
+    it('deletes the sender text for everyone and notifies both participants across their tabs', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const sender = await connectSocket(aliceToken);
+      const senderTab = await connectSocket(aliceToken);
+      const receiver = await connectSocket(bobToken);
+      const receiverTab = await connectSocket(bobToken);
+      const stranger = await connectSocket(outsiderToken);
+      const leaked = vi.fn();
+      stranger.on('message:deleted', leaked);
+      const before = await database
+        .getRepository(ConversationEntity)
+        .findOneByOrFail({ id: conversation.id });
+      expect((await list(bobToken).expect(200)).body.items[0].unreadCount).toBe(
+        1,
+      );
+      const events = [sender, senderTab, receiver, receiverTab].map((socket) =>
+        socketEvent<MessageDeleted>(socket, 'message:deleted'),
+      );
+      const result = await ack<MessageDeleted>(sender, 'message:delete', {
+        messageId: saved.id.toUpperCase(),
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          messageId: saved.id,
+          conversationId: conversation.id,
+          deletedAt: expect.any(String),
+        },
+      });
+      if (!result.ok) throw new Error('Expected success');
+      for (const event of await Promise.all(events))
+        expect(event).toEqual(result.data);
+      expect(leaked).not.toHaveBeenCalled();
+      const stored = await database
+        .getRepository(MessageEntity)
+        .findOneByOrFail({ id: saved.id });
+      expect(stored.content).toBeNull();
+      expect(stored.deletedAt?.toISOString()).toBe(result.data.deletedAt);
+      expect(stored.createdAt).toEqual(saved.createdAt);
+      const preview = (await list(bobToken).expect(200)).body.items[0];
+      expect(preview.unreadCount).toBe(0);
+      expect(preview.lastMessage).toMatchObject({
+        id: saved.id,
+        content: null,
+        deletedAt: result.data.deletedAt,
+      });
+      expect(new Date(preview.updatedAt)).toEqual(before.updatedAt);
+      for (const token of [aliceToken, bobToken]) {
+        const page = (await history(conversation.id, token).expect(200)).body;
+        expect(page.total).toBe(1);
+        expect(page.items[0]).toMatchObject({
+          id: saved.id,
+          senderId: alice.id,
+          content: null,
+          deletedAt: result.data.deletedAt,
+        });
+        expect(JSON.stringify(page)).not.toContain(saved.content);
+      }
+      expect(
+        await ack(receiver, 'message:read', {
+          conversationId: conversation.id,
+        }),
+      ).toMatchObject({ ok: true, data: { updated: 0 } });
+      expect(
+        (
+          await database
+            .getRepository(MessageEntity)
+            .findOneByOrFail({ id: saved.id })
+        ).isRead,
+      ).toBe(false);
+    });
+
+    it('allows only the sender to delete, including when a participant is an admin', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const receiver = await connectSocket(bobToken);
+      const admin = await connectSocket(outsiderToken);
+      expect(
+        await ack(receiver, 'message:delete', { messageId: saved.id }),
+      ).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+      expect(
+        await ack(admin, 'message:delete', { messageId: saved.id }),
+      ).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+      expect(
+        (
+          await database
+            .getRepository(MessageEntity)
+            .findOneByOrFail({ id: saved.id })
+        ).content,
+      ).toBe(saved.content);
+      const ownConversation = (
+        await create(alice.id, outsiderToken).expect(200)
+      ).body;
+      const authorMessage = await message(
+        ownConversation.id,
+        alice.id,
+        new Date(),
+      );
+      expect(
+        await ack(admin, 'message:delete', { messageId: authorMessage.id }),
+      ).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+      const adminMessage = await message(
+        ownConversation.id,
+        outsider.id,
+        new Date(),
+      );
+      expect(
+        await ack(admin, 'message:delete', { messageId: adminMessage.id }),
+      ).toMatchObject({ ok: true });
+    });
+
+    it('validates delete payloads and handles unknown messages safely', async () => {
+      const sender = await connectSocket(aliceToken);
+      for (const input of [
+        null,
+        [],
+        {},
+        { messageId: 'invalid' },
+        { messageId: randomUUID(), senderId: bob.id },
+      ]) {
+        expect(await ack(sender, 'message:delete', input)).toMatchObject({
+          ok: false,
+          error: { code: 'BAD_REQUEST' },
+        });
+      }
+      expect(
+        await ack(sender, 'message:delete', { messageId: randomUUID() }),
+      ).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    });
+
+    it('serializes simultaneous deletions and preserves the first timestamp without repeated events', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const first = await connectSocket(aliceToken);
+      const second = await connectSocket(aliceToken);
+      const receiver = await connectSocket(bobToken);
+      const received = vi.fn();
+      receiver.on('message:deleted', received);
+      const results = await Promise.all([
+        ack<MessageDeleted>(first, 'message:delete', { messageId: saved.id }),
+        ack<MessageDeleted>(second, 'message:delete', { messageId: saved.id }),
+      ]);
+      expect(results[0]).toEqual(results[1]);
+      expect(results[0].ok).toBe(true);
+      expect(
+        await ack(first, 'message:delete', { messageId: saved.id }),
+      ).toEqual(results[0]);
+      await pauseForDelivery();
+      expect(received).toHaveBeenCalledTimes(1);
+      expect(await database.getRepository(MessageEntity).count()).toBe(1);
+    });
+
+    it('never resurrects or emits a deleted message when its original send is retried', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const sender = await connectSocket(aliceToken);
+      const receiver = await connectSocket(bobToken);
+      const payload = {
+        conversationId: conversation.id,
+        clientMessageId: randomUUID(),
+        content: 'Remove this text',
+      };
+      const sent = await ack<MessageSent>(sender, 'message:send', payload);
+      if (!sent.ok) throw new Error('Expected success');
+      await ack(sender, 'message:delete', { messageId: sent.data.message.id });
+      const events = vi.fn();
+      receiver.on('message:new', events);
+      expect(await ack(sender, 'message:send', payload)).toMatchObject({
+        ok: false,
+        error: { code: 'CONFLICT' },
+      });
+      await pauseForDelivery();
+      expect(events).not.toHaveBeenCalled();
+      const stored = await database
+        .getRepository(MessageEntity)
+        .findOneByOrFail({ id: sent.data.message.id });
+      expect(stored.content).toBeNull();
+      expect(stored.deletedAt).not.toBeNull();
+      expect(await database.getRepository(MessageEntity).count()).toBe(1);
+    });
+
+    it('coordinates deletion with concurrent read updates', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const sender = await connectSocket(aliceToken);
+      const reader = await connectSocket(bobToken);
+      const results = await Promise.all([
+        ack(sender, 'message:delete', { messageId: saved.id }),
+        ack(reader, 'message:read', { conversationId: conversation.id }),
+      ]);
+      expect(results.every((result) => result.ok)).toBe(true);
+      expect((await list(bobToken).expect(200)).body.items[0].unreadCount).toBe(
+        0,
+      );
+      expect(
+        (
+          await database
+            .getRepository(MessageEntity)
+            .findOneByOrFail({ id: saved.id })
+        ).content,
+      ).toBeNull();
+    });
+
+    it('returns the deleted placeholder to a recipient reconnecting after deletion', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const sender = await connectSocket(aliceToken);
+      expect(
+        await ack(sender, 'message:delete', { messageId: saved.id }),
+      ).toMatchObject({ ok: true });
+      expect((await connectSocket(bobToken)).connected).toBe(true);
+      const page = (await history(conversation.id, bobToken).expect(200)).body;
+      expect(page.items[0]).toMatchObject({
+        id: saved.id,
+        content: null,
+        deletedAt: expect.any(String),
+      });
+      expect(JSON.stringify(page)).not.toContain(saved.content);
+    });
+
+    it('keeps old messages intact through migration revert/reapply and prevents unsafe rollback after deletion', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const runner = database.createQueryRunner();
+      await runner.connect();
+      await runner.startTransaction();
+      try {
+        await runner.query(`SET LOCAL search_path TO "${schema}", public`);
+        const migration = new AddMessageDeletion1793145600000();
+        await migration.down(runner);
+        expect(
+          (
+            await runner.query(
+              'SELECT content FROM chat_messages WHERE id = $1',
+              [saved.id],
+            )
+          )[0].content,
+        ).toBe(saved.content);
+        await migration.up(runner);
+        await migration.up(runner);
+        const rows = await runner.query(
+          'SELECT content, deleted_at FROM chat_messages WHERE id = $1',
+          [saved.id],
+        );
+        expect(rows[0]).toMatchObject({
+          content: saved.content,
+          deleted_at: null,
+        });
+        await runner.query(
+          'UPDATE chat_messages SET content = NULL, deleted_at = now() WHERE id = $1',
+          [saved.id],
+        );
+        await expect(migration.down(runner)).rejects.toThrow(
+          'Cannot revert message deletion',
+        );
+        expect(
+          (
+            await runner.query(
+              'SELECT content, deleted_at FROM chat_messages WHERE id = $1',
+              [saved.id],
+            )
+          )[0].content,
+        ).toBeNull();
+      } finally {
+        await runner.rollbackTransaction();
+        await runner.release();
+      }
+    });
+
+    it('enforces nonblank live text and text-free deleted placeholders in PostgreSQL', async () => {
+      const conversation = (await create(bob.id).expect(200)).body;
+      const saved = await message(conversation.id, alice.id, new Date());
+      const messages = database.getRepository(MessageEntity);
+      for (const update of [
+        { content: null },
+        { content: '   ' },
+        { deletedAt: new Date() },
+      ]) {
+        await expect(messages.update(saved.id, update)).rejects.toMatchObject({
+          driverError: {
+            code: '23514',
+            constraint: 'CK_chat_messages_content',
+          },
+        });
+      }
+      await messages.update(saved.id, { content: null, deletedAt: new Date() });
+      await expect(
+        messages.update(saved.id, {
+          content: 'Cannot leave text on a deleted placeholder',
+        }),
+      ).rejects.toMatchObject({ driverError: { code: '23514' } });
     });
   },
 );

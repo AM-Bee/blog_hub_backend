@@ -1,5 +1,7 @@
 # Private chat backend — database, REST, and Socket.IO
 
+Message deletion setup and event contract: [CHAT_MESSAGE_DELETION.md](CHAT_MESSAGE_DELETION.md). Apply its new migration before using the updated module.
+
 Study the source file by file and function by function: [CHAT_STUDY_GUIDE.md](CHAT_STUDY_GUIDE.md).
 
 All four backend phases are complete (Phase 4 final review: [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md)): database, protected REST API, and authenticated Socket.IO messaging. ChatModule reuses the existing JWT/session authentication. No frontend code, Redis, queues, or additional authentication system is included.
@@ -43,19 +45,20 @@ Two indexes support looking up conversations by either participant, with update 
 
 File: `src/chat/entities/message.entity.ts`. Table: `chat_messages`.
 
-| Field             | PostgreSQL column        | Meaning                                         |
-| ----------------- | ------------------------ | ----------------------------------------------- |
-| `id`              | `id` UUID                | Server-generated message identifier             |
-| `conversationId`  | `conversation_id` UUID   | The conversation containing the message         |
-| `senderId`        | `sender_id` UUID         | Existing user who sent it                       |
-| `clientMessageId` | `client_message_id` UUID | Client request identifier for safe retries      |
-| `content`         | `content` varchar(2000)  | Plain text, maximum 2,000 PostgreSQL characters |
-| `isRead`          | `is_read` boolean        | Defaults to false                               |
-| `createdAt`       | `created_at` timestamptz | Message creation time                           |
+| Field             | PostgreSQL column                  | Meaning                                      |
+| ----------------- | ---------------------------------- | -------------------------------------------- |
+| `id`              | `id` UUID                          | Server-generated message identifier          |
+| `conversationId`  | `conversation_id` UUID             | The conversation containing the message      |
+| `senderId`        | `sender_id` UUID                   | Existing user who sent it                    |
+| `clientMessageId` | `client_message_id` UUID           | Client request identifier for safe retries   |
+| `content`         | `content` varchar(2000), nullable  | Nonblank live text; null after deletion      |
+| `deletedAt`       | `deleted_at` timestamptz, nullable | First deletion time; null for a live message |
+| `isRead`          | `is_read` boolean                  | Defaults to false                            |
+| `createdAt`       | `created_at` timestamptz           | Message creation time                        |
 
-A message references one conversation and one sender. A conversation can contain many messages, and a user can send many messages. Content is stored as text without HTML rendering. A check rejects empty strings and content containing only PostgreSQL whitespace characters (including spaces, tabs, and newlines). The varchar limit rejects text longer than 2,000 characters.
+A message references one conversation and one sender. A conversation can contain many messages, and a user can send many messages. Live content is stored as text without HTML rendering. Deleted messages retain their history row with null content and a deletion timestamp. For live messages, a check rejects empty strings and content containing only PostgreSQL whitespace characters (including spaces, tabs, and newlines). The varchar limit rejects text longer than 2,000 characters.
 
-A unique index on `(sender_id, client_message_id)` ensures one sender cannot create a second message with the same retry ID, even in another conversation. Different senders can independently use the same UUID. The repository looks up the existing message on a retry, verifies the conversation and payload agree, and returns it without emitting a duplicate event.
+A unique index on `(sender_id, client_message_id)` ensures one sender cannot create a second message with the same retry ID, even in another conversation. Different senders can independently use the same UUID. The repository looks up the existing message on a retry, verifies the conversation and payload agree, and returns it without emitting a duplicate event. Retrying a deleted message returns CONFLICT instead of restoring text.
 
 The history index covers `(conversation_id, created_at, id)` for stable pagination in either direction. Another index covers `(conversation_id, is_read, sender_id)` for unread counts/read updates.
 
@@ -79,7 +82,7 @@ The membership function binds its conversation lookup to the migration's schema,
 
 - Deleting a conversation cascades to its messages.
 - Deleting a participant/sender is restricted while related conversations/messages exist. There is currently no account-deletion endpoint; a future retention/deletion policy can change this deliberately.
-- No conversation/message deletion endpoint is added in Phase 1.
+- Message deletion now uses the sender-only `message:delete` socket event; no HTTP deletion route or conversation-deletion API is exposed.
 
 ## Schema synchronization and production
 
@@ -187,7 +190,7 @@ Example conversation response (IDs below are illustrative):
 
 Both GET routes return `{ items, page, limit, total, totalPages }`. Defaults: page 1 and limit 20. Page must be an integer from 1 to 1,000,000; limit must be an integer from 1 to 50. Invalid values and unknown query parameters return 400. Empty and beyond-last pages return `items: []`; an empty collection has `totalPages: 0`.
 
-Conversation responses expose only the other user's ID/display name, a safe last-message object, and the signed-in recipient's unread count. A last-message object has `id`, `conversationId`, `senderId`, `clientMessageId`, `content`, `isRead`, and `createdAt`. Its `createdAt` is the last-message timestamp; when no message exists, `lastMessage` is null. User emails, credentials, sessions, and provider information are excluded. The repository batches users, latest messages (PostgreSQL DISTINCT ON), and unread counts for the whole page instead of querying each conversation separately.
+Conversation responses expose only the other user's ID/display name, a safe last-message object, and the signed-in recipient's unread count. A last-message object has `id`, `conversationId`, `senderId`, `clientMessageId`, `content`, `deletedAt`, `isRead`, and `createdAt`. Content is null for a deleted placeholder; live messages have `deletedAt: null`. Its `createdAt` is the last-message timestamp; when no message exists, `lastMessage` is null. User emails, credentials, sessions, and provider information are excluded. The repository batches users, latest messages (PostgreSQL DISTINCT ON), and unread counts for the whole page instead of querying each conversation separately.
 
 History returns messages **newest first**, ordered by `createdAt DESC, id DESC`, including a deterministic ID tie-breaker for equal timestamps. Page 1 contains the newest messages; higher pages contain older messages. The frontend may reverse each page for display, but the API order remains newest first. Offset pagination is not a frozen snapshot: newly inserted messages can shift page boundaries. Fetching history does not mark messages as read. Content is plain text and must be rendered as text, not trusted HTML.
 
@@ -217,7 +220,7 @@ Swagger documentation is available at `http://localhost:5300/api/docs`, under th
 - Response DTOs document individual and paginated conversations/messages. Repository return types reuse these shapes without adding extra abstraction layers.
 - `chat.gateway.ts`: connection authentication, expiry/session checks, private delivery, event handlers, acknowledgements, and in-memory user rate limits.
 - `interface/chat-ack.interface.ts` and `interface/chat-event.interface.ts`: typed acknowledgements, messages, read receipts, and typing payloads.
-- `dto/send-message.dto.ts` and `dto/conversation-event.dto.ts`: socket payload validation.
+- `dto/send-message.dto.ts` and `dto/conversation-event.dto.ts`: socket payload validation, including `dto/delete-message.dto.ts` for deletion.
 - `chat.gateway.spec.ts`: timer, authorization, validation, event, and rate-limit unit tests.
 - `chat.postgres.spec.ts`: real PostgreSQL + HTTP + Socket.IO tests, real login/JWT/session checks, isolated schema and cleanup.
 - `src/common/taxonomy.modules.spec.ts`: existing module/Swagger wiring check now includes chat.
@@ -262,14 +265,15 @@ or:
 
 Error codes: `BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL_ERROR`. Validation errors may combine multiple messages with semicolons. Unexpected errors return a generic message without database details. The gateway does not log credentials or message content.
 
-| Client event   | Payload                                        | Success acknowledgement `data`          | Recipient event                                                         |
-| -------------- | ---------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| `message:send` | `{ conversationId, clientMessageId, content }` | `{ message, created }`                  | `message:new` with the message object, only for newly inserted messages |
-| `message:read` | `{ conversationId }`                           | `{ conversationId, readerId, updated }` | `message:read` with the receipt, only when at least one message changed |
-| `typing:start` | `{ conversationId }`                           | `{ conversationId, userId }`            | `typing:start` with the same data                                       |
-| `typing:stop`  | `{ conversationId }`                           | `{ conversationId, userId }`            | `typing:stop` with the same data                                        |
+| Client event     | Payload                                        | Success acknowledgement `data`             | Recipient event                                                         |
+| ---------------- | ---------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| `message:send`   | `{ conversationId, clientMessageId, content }` | `{ message, created }`                     | `message:new` with the message object, only for newly inserted messages |
+| `message:delete` | `{ messageId }`                                | `{ messageId, conversationId, deletedAt }` | `message:deleted` to both participants for the first deletion           |
+| `message:read`   | `{ conversationId }`                           | `{ conversationId, readerId, updated }`    | `message:read` with the receipt, only when at least one message changed |
+| `typing:start`   | `{ conversationId }`                           | `{ conversationId, userId }`               | `typing:start` with the same data                                       |
+| `typing:stop`    | `{ conversationId }`                           | `{ conversationId, userId }`               | `typing:stop` with the same data                                        |
 
-Every recipient event goes only to authenticated connections of the **other participant**. The initiating socket receives its acknowledgement rather than a duplicate `message:new` echo. Other sender devices can refresh history to synchronize their own sent messages. Typing events are temporary and never stored. Clients should clear typing indicators after a short local timeout as well as on `typing:stop`/disconnect.
+Message/read/typing notifications go only to authenticated connections of the **other participant**. Deletion notifications go to **both participants**, including the initiating socket and other sender devices. The initiating socket receives its acknowledgement rather than a duplicate `message:new` echo. Other sender devices can refresh history to synchronize their own sent messages. Typing events are temporary and never stored. Clients should clear typing indicators after a short local timeout as well as on `typing:stop`/disconnect.
 
 Example send payload:
 
@@ -283,9 +287,17 @@ Example send payload:
 
 Generate `clientMessageId` once per intended message and reuse it with the exact same conversation and content on retries. Content is nonblank plain text, at most 2,000 characters. A new insert returns `created: true`. Retrying returns the original message with `created: false`, preserves its ID/timestamps, and emits no duplicate. Reusing the same sender/client ID with different content or another conversation returns `CONFLICT`. Different senders may use the same client ID independently.
 
-The repository locks the conversation row and saves the message plus conversation timestamp in one transaction. PostgreSQL uniqueness handles concurrent retries. Failed timestamp updates roll back the message insertion. For read events, it locks the same row and updates only unread messages whose sender differs from the verified reader. Clients cannot choose `senderId`, `readerId`, or another identity; extra payload properties are rejected. Read receipts are a signal to refresh canonical message `isRead` flags; do not blindly mark later-arriving messages as read using only the receipt's count.
+The repository locks the conversation row and saves the message plus conversation timestamp in one transaction. PostgreSQL uniqueness handles concurrent retries. Failed timestamp updates roll back the message insertion. For read events, it locks the same row and updates only nondeleted unread messages whose sender differs from the verified reader. Clients cannot choose `senderId`, `readerId`, or another identity; extra payload properties are rejected. Read receipts are a signal to refresh canonical message `isRead` flags; do not blindly mark later-arriving messages as read using only the receipt's count.
 
 Socket delivery is best effort, not a durable queue or delivery acknowledgement. Committed messages remain available through REST history while the recipient is offline or disconnected. An event can be missed during a disconnect/server crash; reconnecting clients must fetch history. The retry guarantee prevents duplicate database rows and duplicate emission on repeated requests, but does not guarantee exactly-once delivery over the network.
+
+### Deleting messages
+
+Emit `message:delete` with `{ messageId }`. Only the sender can delete; admins have no override. A successful acknowledgement contains `{ messageId, conversationId, deletedAt }`. The first deletion sends `message:deleted` with those fields to both users' authorized connections. Repeating it preserves the timestamp and emits nothing further.
+
+The text becomes null while the row remains visible in history and latest-message previews. Deleted rows count toward history pagination but not unread counts. Clients display “Message deleted” and must not restore a deleted ID from a late old event or acknowledgement. Read updates skip deleted rows. Send retries for a deleted message return `CONFLICT`.
+
+See [CHAT_MESSAGE_DELETION.md](CHAT_MESSAGE_DELETION.md) for the required migration, database rules, code locations, and examples.
 
 ### Rate limits and lifecycle
 
@@ -344,8 +356,8 @@ BLOGHUB_RUN_DB_TESTS=1 npm test -- src/chat/chat.postgres.spec.ts
 BLOGHUB_RUN_DB_TESTS=1 npm run test:e2e
 ```
 
-The normal suite includes 23 gateway tests covering expiry, periodic revocation checks, cleanup, safe errors, payload validation, private routing, duplicate suppression, typing/read events, and rate limits across tabs/reconnects. Module tests verify Nest dependency wiring and Bearer security on REST Swagger operations without PostgreSQL.
+The original gateway unit test file was removed in the working tree and has not been restored. The current suite includes 10 focused deletion gateway tests for validation, authentication, routing, repeat suppression, safe errors, and quotas. Existing real socket tests continue to exercise the broader chat flow. Module tests verify Nest dependency wiring and Bearer security on REST Swagger operations without PostgreSQL.
 
-The opt-in chat suite contains 25 real PostgreSQL/REST/Socket.IO tests. It creates a random temporary schema, applies the chat migration there, and connects real Socket.IO clients to an ephemeral local port. Tests cover guarded REST behavior, concurrent pair reuse, pagination, recipient-only multi-tab delivery, outsider/admin denial, concurrent/sequential retries, content/identity validation, read receipts, typing, revocation, idle expiry, offline history recovery, refresh-cookie reconnection, disabled accounts, JWT issuer/audience checks, and transaction rollback. Cleanup disconnects clients, shuts down timers/server, and drops only the temporary schema. Application tables/accounts are unchanged; no emails are sent.
+The opt-in chat suite contains 34 real PostgreSQL/REST/Socket.IO tests, including 9 sender-only deletion and migration scenarios. It creates a random temporary schema, applies the chat migration there, and connects real Socket.IO clients to an ephemeral local port. Tests cover guarded REST behavior, concurrent pair reuse, pagination, recipient-only multi-tab delivery, outsider/admin denial, concurrent/sequential retries, content/identity validation, read receipts, typing, revocation, idle expiry, offline history recovery, refresh-cookie reconnection, disabled accounts, JWT issuer/audience checks, and transaction rollback. Cleanup disconnects clients, shuts down timers/server, and drops only the temporary schema. Application tables/accounts are unchanged; no emails are sent.
 
-No additional migration is needed beyond the installed Phase 1 migration. Phase 4 completed the security/error review, fixed expiry during an authentication query, tested reconnects with real clients, and ran existing-feature regressions plus complete AppModule acceptance tests. See [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md) for exact scope, results, commands, and operating limits. No frontend work was performed.
+The original phases used the Phase 1 migration. The later message-deletion feature additionally requires `1793145600000-AddMessageDeletion.ts`; run the registered pending migrations before restarting the updated server. Phase 4 completed the security/error review, fixed expiry during an authentication query, tested reconnects with real clients, and ran existing-feature regressions plus complete AppModule acceptance tests. See [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md) for exact scope, results, commands, and operating limits. No frontend work was performed.

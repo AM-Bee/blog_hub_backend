@@ -16,8 +16,15 @@ export class MessageResponseDto {
   })
   clientMessageId: string;
 
-  @ApiProperty()
-  content: string;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Null when the message has been deleted',
+  })
+  content: string | null;
+
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
+  deletedAt: Date | null;
 
   @ApiProperty()
   isRead: boolean;

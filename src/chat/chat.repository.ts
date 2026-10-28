@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, QueryFailedError } from 'typeorm';
+import { In, IsNull, Not, QueryFailedError } from 'typeorm';
 import type { Repository } from 'typeorm';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { validateDto } from '../common/validation.utils.js';
@@ -19,6 +19,7 @@ import { ListMessagesQueryDto } from './dto/list-messages-query.dto.js';
 import type { ConversationPageResponseDto } from './dto/conversation-page-response.dto.js';
 import type { MessagePageResponseDto } from './dto/message-page-response.dto.js';
 import type { MessageResponseDto } from './dto/message-response.dto.js';
+import { DeleteMessageDto } from './dto/delete-message.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { ConversationEventDto } from './dto/conversation-event.dto.js';
 
@@ -204,6 +205,7 @@ export class ChatRepository {
         .where('message.conversationId IN (:...ids)', { ids })
         .andWhere('message.senderId != :userId', { userId: currentUserId })
         .andWhere('message.isRead = false')
+        .andWhere('message.deletedAt IS NULL')
         .groupBy('message.conversationId')
         .getRawMany<{ conversationId: string; count: string }>(),
     ]);
@@ -236,7 +238,8 @@ export class ChatRepository {
       conversationId: message.conversationId,
       senderId: message.senderId,
       clientMessageId: message.clientMessageId,
-      content: message.content,
+      content: message.deletedAt ? null : message.content,
+      deletedAt: message.deletedAt,
       isRead: message.isRead,
       createdAt: message.createdAt,
     };
@@ -287,6 +290,12 @@ export class ChatRepository {
         senderId,
         clientMessageId,
       });
+
+      if (message.deletedAt) {
+        throw new ConflictException(
+          'This message was deleted and cannot be sent again',
+        );
+      }
 
       // A retry must refer to exactly the same message.
       if (
@@ -346,6 +355,7 @@ export class ChatRepository {
           conversationId,
           senderId: Not(readerId),
           isRead: false,
+          deletedAt: IsNull(),
         },
         {
           isRead: true,
@@ -362,6 +372,55 @@ export class ChatRepository {
         readerId,
         recipientId,
         updated: result.affected ?? 0,
+      };
+    });
+  }
+
+  /** Remove only the sender's own message text, preserving its first deletion time and history row. */
+  async deleteMessage(userId: string, input: DeleteMessageDto) {
+    const dto = await validateDto(input, DeleteMessageDto);
+    const senderId = userId.toLowerCase();
+    const messageId = dto.messageId.toLowerCase();
+
+    return this.conversations.manager.transaction(async (manager) => {
+      const messages = manager.getRepository(MessageEntity);
+      const reference = await messages.findOne({
+        where: { id: messageId },
+        select: { id: true, conversationId: true },
+      });
+      if (!reference) throw new NotFoundException('Message not found');
+
+      // Use the same conversation lock as sends and read updates to serialize concurrent actions.
+      const conversation = await manager.findOne(ConversationEntity, {
+        where: { id: reference.conversationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!conversation) throw new NotFoundException('Conversation not found');
+      this.assertParticipant(conversation, senderId);
+
+      const message = await messages.findOneBy({
+        id: messageId,
+        conversationId: conversation.id,
+      });
+      if (!message) throw new NotFoundException('Message not found');
+      if (message.senderId !== senderId) {
+        throw new ForbiddenException('You can only delete your own messages');
+      }
+
+      const deletedAt = message.deletedAt ?? new Date();
+      const changed = message.deletedAt === null;
+      if (changed) {
+        await messages.update({ id: message.id }, { content: null, deletedAt });
+      }
+      return {
+        messageId: message.id,
+        conversationId: conversation.id,
+        deletedAt,
+        recipientId:
+          conversation.user1Id === senderId
+            ? conversation.user2Id
+            : conversation.user1Id,
+        changed,
       };
     });
   }

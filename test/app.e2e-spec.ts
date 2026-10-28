@@ -20,8 +20,12 @@ import { NotificationEntity } from '../src/notifications/entities/notification.e
 import { ConversationEntity } from '../src/chat/entities/conversation.entity.js';
 import { MessageEntity } from '../src/chat/entities/message.entity.js';
 import { AddPrivateChat1792584000000 } from '../src/database/migrations/1792584000000-AddPrivateChat.js';
+import { AddMessageDeletion1793145600000 } from '../src/database/migrations/1793145600000-AddMessageDeletion.js';
 import type { ChatAck } from '../src/chat/interface/chat-ack.interface.js';
-import type { MessageSent } from '../src/chat/interface/chat-event.interface.js';
+import type {
+  MessageDeleted,
+  MessageSent,
+} from '../src/chat/interface/chat-event.interface.js';
 
 // Full AppModule wiring, but every write is confined to this disposable schema.
 const schema = `acceptance_test_${randomUUID().replaceAll('-', '')}`;
@@ -111,6 +115,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       try {
         await runner.query(`SET LOCAL search_path TO "${schema}", public`);
         await new AddPrivateChat1792584000000().up(runner);
+        await new AddMessageDeletion1793145600000().up(runner);
         await runner.commitTransaction();
       } catch (error) {
         await runner.rollbackTransaction();
@@ -342,7 +347,20 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       const freshToken = (
         await login(alice.email, 'ChangedPassword123!').expect(200)
       ).body.accessToken;
-      expect((await connect(freshToken)).connected).toBe(true);
+      const freshSocket = await connect(freshToken);
+      expect(freshSocket.connected).toBe(true);
+      if (!result.ok) throw new Error('Expected message success');
+      const deleted = event<MessageDeleted>(receiver, 'message:deleted');
+      const deletion: ChatAck<MessageDeleted> = await freshSocket
+        .timeout(3000)
+        .emitWithAck('message:delete', { messageId: result.data.message.id });
+      expect(deletion).toMatchObject({
+        ok: true,
+        data: { messageId: result.data.message.id },
+      });
+      expect(await deleted).toMatchObject({
+        messageId: result.data.message.id,
+      });
       expect(
         (
           await request(app.getHttpServer())

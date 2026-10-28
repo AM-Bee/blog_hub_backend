@@ -144,3 +144,5 @@ Private 1-to-1 chat, Phases 1–4 complete (database, protected REST endpoints, 
 Chat final review, verified tests, and deployment limits: [docs/CHAT_PHASE4_REVIEW.md](docs/CHAT_PHASE4_REVIEW.md).
 
 Chat code study guide — file responsibilities, every function, and message flow: [docs/CHAT_STUDY_GUIDE.md](docs/CHAT_STUDY_GUIDE.md).
+
+Sender-only chat message deletion, required migration, and socket events: [docs/CHAT_MESSAGE_DELETION.md](docs/CHAT_MESSAGE_DELETION.md).

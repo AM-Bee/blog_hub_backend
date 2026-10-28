@@ -5,6 +5,12 @@ export interface MessageSent {
   created: boolean;
 }
 
+export interface MessageDeleted {
+  messageId: string;
+  conversationId: string;
+  deletedAt: Date;
+}
+
 export interface ReadReceipt {
   conversationId: string;
   readerId: string;
@@ -19,4 +25,5 @@ export interface TypingEvent {
 export type ChatEvent =
   | { event: 'message:new'; data: MessageResponseDto }
   | { event: 'message:read'; data: ReadReceipt }
+  | { event: 'message:deleted'; data: MessageDeleted }
   | { event: 'typing:start' | 'typing:stop'; data: TypingEvent };

@@ -2,6 +2,8 @@
 
 This guide explains the code currently in this repository: which file to open, what each function does, who calls it, and where its result goes. Read [CHAT.md](CHAT.md) for API/event payload examples and [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md) for the final review and test results.
 
+Message deletion is documented in [CHAT_MESSAGE_DELETION.md](CHAT_MESSAGE_DELETION.md), including its required migration.
+
 ## 1. Start with the overall flow
 
 The chat backend has two entry points:
@@ -9,7 +11,7 @@ The chat backend has two entry points:
 | Entry point      | Used for                                                             | First file           |
 | ---------------- | -------------------------------------------------------------------- | -------------------- |
 | REST requests    | Find/create a conversation, list conversations, load message history | `chat.controller.ts` |
-| Socket.IO events | Send messages, mark messages read, start/stop typing                 | `chat.gateway.ts`    |
+| Socket.IO events | Send/delete messages, mark messages read, start/stop typing          | `chat.gateway.ts`    |
 
 Both call the same service and repository:
 
@@ -52,6 +54,7 @@ src/chat/
 │   ├── create-conversation.dto.ts          Validates a recipient ID
 │   ├── list-conversations-query.dto.ts     Validates conversation pagination
 │   ├── list-messages-query.dto.ts          Validates history pagination
+│   ├── delete-message.dto.ts               Validates the message ID to delete
 │   ├── send-message.dto.ts                 Validates a message-send payload
 │   ├── conversation-event.dto.ts           Validates read/typing payloads
 │   ├── conversation-response.dto.ts        Documents one conversation and its other user
@@ -61,7 +64,7 @@ src/chat/
 ├── interface/
 │   ├── chat-ack.interface.ts               TypeScript acknowledgement/error types
 │   └── chat-event.interface.ts             TypeScript event/result types
-├── chat.gateway.spec.ts                    Gateway unit tests
+├── chat.message-deletion.spec.ts           Deletion gateway unit tests
 └── chat.postgres.spec.ts                   PostgreSQL, REST, and real socket tests
 
 src/database/migrations/
@@ -232,7 +235,7 @@ It builds `Map` objects to look up users, latest messages, and counts by ID. Fin
 
 **Purpose:** explicitly choose fields returned for a message.
 
-It copies `id`, `conversationId`, `senderId`, `clientMessageId`, `content`, `isRead`, and `createdAt`. Both history and live sending use this shape. It does not include the sender's user entity or credentials.
+It copies `id`, `conversationId`, `senderId`, `clientMessageId`, `content`, `deletedAt`, `isRead`, and `createdAt`. Both history and live sending use this shape. It does not include the sender's user entity or credentials.
 
 ### `saveMessage(userId, input)`
 
@@ -251,7 +254,7 @@ This is called by service `saveMessage()`, which is called by gateway `sendMessa
 9. For a new insert only, update the conversation timestamp in the same transaction.
 10. Return `{ message, recipientId, created }` after the transaction commits.
 
-`created: true` means a new message row; `created: false` means an existing identical retry. The gateway emits `message:new` only when `created` is true.
+`created: true` means a new message row; `created: false` means an existing identical retry. The gateway emits `message:new` only when `created` is true. Retrying a deleted message is rejected with CONFLICT, so its text cannot be restored.
 
 `.orIgnore()` becomes PostgreSQL conflict-ignore behavior. The sender/client-ID unique index prevents retry duplicates. The subsequent lookup and content/conversation comparison ensure an ignored insert is accepted only as a matching retry. Foreign-key and other non-unique failures are not turned into successful retries.
 
@@ -269,6 +272,7 @@ It validates the conversation-event DTO, starts a transaction, locks the convers
 conversationId = selected conversation
 senderId != authenticated reader
 isRead = false
+deletedAt IS NULL
 ```
 
 It sets those rows to `isRead: true` and returns `{ conversationId, readerId, recipientId, updated }`. `updated` is the affected-row count; repeating a read returns zero once nothing remains unread.
@@ -355,6 +359,12 @@ It returns `ChatAck<MessageSent>`: `{ ok: true, data: { message, created } }` or
 It applies the event quota, reauthenticates, validates `ConversationEventDto`, and calls `chatService.markMessagesRead()`. It returns a receipt containing `conversationId`, `readerId`, and `updated`. If `updated > 0`, it also emits that receipt to the other participant.
 
 It removes internal `recipientId` from the client-facing receipt. A receipt signals that read state changed; clients should refresh canonical message flags rather than blindly marking later-arriving messages read from a count alone.
+
+### `deleteMessage(socket, input)`
+
+**Triggered by `message:delete`.** It checks the event quota and credentials, validates `DeleteMessageDto`, and calls service `deleteMessage()`. The service delegates to repository `deleteMessage(userId, input)`, which locks the conversation, checks membership and message ownership, then sets `content: null` and the first deletion time. The row and its original sender/creation time stay in history.
+
+The repository returns an internal `changed` flag and recipient ID. The gateway sends `{ messageId, conversationId, deletedAt }` to both participants' authorized connections only when changed, and returns those same public fields in the acknowledgement. Repeating deletion succeeds without another notification. Admins can delete only their own sent messages.
 
 ### `typingStart(socket, input)`
 
@@ -454,14 +464,17 @@ Open [chat-ack.interface.ts](../src/chat/interface/chat-ack.interface.ts):
 - `ChatAck<T>`: either `{ ok: true, data: T }` or `{ ok: false, error: { code, message } }`.
 - `T` is the successful data type, such as `MessageSent` or `ReadReceipt`. Check `ack.ok` before reading the corresponding branch.
 
+`chat-event.interface.ts` also defines `MessageDeleted` (`messageId`, `conversationId`, `deletedAt`) for deletion acknowledgements/notifications.
+
 Open [chat-event.interface.ts](../src/chat/interface/chat-event.interface.ts):
 
-| Type          | Fields / purpose                                                                                |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| `MessageSent` | `message`, `created`: send acknowledgement data.                                                |
-| `ReadReceipt` | `conversationId`, `readerId`, `updated`: read acknowledgement and recipient notification.       |
-| `TypingEvent` | `conversationId`, `userId`: typing acknowledgement/notification.                                |
-| `ChatEvent`   | A union connecting supported outgoing event names to their data shapes; used by `emitToUser()`. |
+| Type             | Fields / purpose                                                                                            |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `MessageSent`    | `message`, `created`: send acknowledgement data.                                                            |
+| `MessageDeleted` | `messageId`, `conversationId`, `deletedAt`: deletion acknowledgement and notification to both participants. |
+| `ReadReceipt`    | `conversationId`, `readerId`, `updated`: read acknowledgement and recipient notification.                   |
+| `TypingEvent`    | `conversationId`, `userId`: typing acknowledgement/notification.                                            |
+| `ChatEvent`      | A union connecting supported outgoing event names to their data shapes; used by `emitToUser()`.             |
 
 An acknowledgement replies to the initiating event. A recipient notification is a separate event sent to another socket. Returning success to Alice does not mean Bob has read or even received the live event.
 
@@ -487,15 +500,16 @@ The database requires `user1_id < user2_id` and a unique pair. Equal IDs fail, p
 
 Open [MessageEntity](../src/chat/entities/message.entity.ts). It maps to `chat_messages`; it declares fields/relations and has no custom methods.
 
-| Field                            | Meaning                                                                     |
-| -------------------------------- | --------------------------------------------------------------------------- |
-| `id`                             | UUID identifying the saved message.                                         |
-| `conversationId`, `conversation` | Its parent conversation ID and TypeORM relation.                            |
-| `senderId`, `sender`             | Its authenticated author ID and User relation.                              |
-| `clientMessageId`                | Client-generated retry ID, unique together with the sender.                 |
-| `content`                        | Nonblank plain text, stored in a varchar(2000) column.                      |
-| `isRead`                         | Whether the other participant has marked this message read; defaults false. |
-| `createdAt`                      | Time the message was created.                                               |
+| Field                            | Meaning                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `id`                             | UUID identifying the saved message.                                                         |
+| `conversationId`, `conversation` | Its parent conversation ID and TypeORM relation.                                            |
+| `senderId`, `sender`             | Its authenticated author ID and User relation.                                              |
+| `clientMessageId`                | Client-generated retry ID, unique together with the sender.                                 |
+| `content`                        | Nonblank live text in varchar(2000), or null after deletion.                                |
+| `deletedAt`                      | First deletion time, or null for a live message; a plain column keeps placeholders visible. |
+| `isRead`                         | Whether the other participant has marked this message read; defaults false.                 |
+| `createdAt`                      | Time the message was created.                                                               |
 
 One conversation has many messages. Deleting a conversation cascades to its messages at the database level; there is currently no chat deletion endpoint. Deleting a referenced sender is restricted.
 
@@ -521,6 +535,8 @@ The function that checks membership refers to the migration's schema explicitly.
 ### `down(queryRunner)`
 
 Drops messages, then conversations, then the two trigger functions. That removes stored chat history. Studying this method does not require running it.
+
+The later [AddMessageDeletion migration](../src/database/migrations/1793145600000-AddMessageDeletion.ts) adds nullable content and `deleted_at`, replaces the content check with live/deleted consistency rules, and refuses rollback while deleted messages exist because their original text is unavailable.
 
 The migration is registered in [data-source.ts](../src/database/data-source.ts). Keep migration files as the history of how the schema was built. Entity registration and a successful previous migration do not make the migration source unnecessary.
 
@@ -559,11 +575,11 @@ If Bob was offline, step 7 has no connected recipient. The message still exists.
 
 ## 14. Tests as reading examples
 
-| File                                                       | What to learn from it                                                                                                                                                      |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [chat.gateway.spec.ts](../src/chat/chat.gateway.spec.ts)   | Small unit scenarios with mocked auth/service/socket objects: follow individual event handlers, timers, safe errors, rate limits, and expiry during an asynchronous check. |
-| [chat.postgres.spec.ts](../src/chat/chat.postgres.spec.ts) | Real request/event examples, real database transactions, duplicate races, privacy, read flags, Unicode limits, offline recovery, and refresh/reconnect behavior.           |
-| [app.e2e-spec.ts](../test/app.e2e-spec.ts)                 | How chat and existing application features work together through the full AppModule.                                                                                       |
+| File                                                                       | What to learn from it                                                                                                                                                           |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [chat.message-deletion.spec.ts](../src/chat/chat.message-deletion.spec.ts) | Focused deletion scenarios with mocked auth/service/socket objects: validation, acknowledgements, both-user routing, authorization failures, safe errors, and the shared quota. |
+| [chat.postgres.spec.ts](../src/chat/chat.postgres.spec.ts)                 | Real request/event examples, real database transactions, duplicate races, privacy, read flags, Unicode limits, offline recovery, and refresh/reconnect behavior.                |
+| [app.e2e-spec.ts](../test/app.e2e-spec.ts)                                 | How chat and existing application features work together through the full AppModule.                                                                                            |
 
 A `.spec.ts` file verifies code behavior; it is not a production endpoint. `vi.fn()` creates a test double. Controlled timers let tests advance expiry and rate-limit windows without waiting in real time.
 
@@ -610,3 +626,5 @@ Useful code-search questions while studying:
 | Disconnect/reconnect expectations | Gateway lifecycle/auth helpers and the client contract in `CHAT.md`                                                   |
 
 Use the mapping functions and checks together when changing a response or behavior. Editing a Swagger DTO alone changes documentation; it does not make the query fetch additional fields or enforce a new permission rule.
+
+Deletion code lookup: gateway/service/repository `deleteMessage()`, `DeleteMessageDto`, `MessageDeleted`, nullable `MessageResponseDto.content`, and `deletedAt`. Unread-count queries and `markMessagesRead()` skip deleted rows; history and previews keep their placeholders.

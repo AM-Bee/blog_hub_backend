@@ -4,6 +4,7 @@ import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto.js';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto.js';
 import type { ConversationPageResponseDto } from './dto/conversation-page-response.dto.js';
+import { DeleteMessageDto } from './dto/delete-message.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { ConversationEventDto } from './dto/conversation-event.dto.js';
 
@@ -48,5 +49,10 @@ export class ChatService {
   /** Return a conversation only if this user belongs to it; typing events use this check. */
   findForUser(conversationId: string, userId: string) {
     return this.chatRepository.findForUser(conversationId, userId);
+  }
+
+  /** Delegate sender-only deletion and return the preserved placeholder details for socket delivery. */
+  deleteMessage(userId: string, dto: DeleteMessageDto) {
+    return this.chatRepository.deleteMessage(userId, dto);
   }
 }

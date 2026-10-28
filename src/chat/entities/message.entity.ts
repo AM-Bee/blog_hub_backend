@@ -13,7 +13,13 @@ import { UserEntity } from '../../users/entities/user.entity.js';
 import { ConversationEntity } from './conversation.entity.js';
 
 @Entity({ name: 'chat_messages', synchronize: false })
-@Check('CK_chat_messages_content', '"content" ~ \'[^[:space:]]\'')
+@Check(
+  'CK_chat_messages_content',
+  `
+  ("deleted_at" IS NULL AND "content" IS NOT NULL AND "content" ~ '[^[:space:]]')
+  OR ("deleted_at" IS NOT NULL AND "content" IS NULL)
+`,
+)
 @Index('UQ_chat_messages_sender_client', ['senderId', 'clientMessageId'], {
   unique: true,
 })
@@ -50,8 +56,12 @@ export class MessageEntity {
   @Column({ name: 'client_message_id', type: 'uuid' })
   clientMessageId: string;
 
-  @Column({ type: 'varchar', length: 2000 })
-  content: string;
+  @Column({ type: 'varchar', length: 2000, nullable: true })
+  content: string | null;
+
+  // A normal column keeps the deleted placeholder visible in message history.
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
 
   @Column({ name: 'is_read', type: 'boolean', default: false })
   isRead: boolean;
