@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { ConversationResponseDto } from './conversation-response.dto.js';
+import { APP_FILTER } from '@nestjs/core';
 
 export class ConversationPageResponseDto {
   @ApiProperty({ type: [ConversationResponseDto] })
@@ -17,3 +18,4 @@ export class ConversationPageResponseDto {
   @ApiProperty()
   totalPages: number;
 }
+

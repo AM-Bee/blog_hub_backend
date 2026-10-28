@@ -3,6 +3,7 @@ import pg from 'pg';
 import bcrypt from 'bcrypt';
 import { isEmail } from 'class-validator';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -75,6 +76,14 @@ async function main() {
     user: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
+    ssl:
+      process.env.DB_SSL === 'true'
+        ? {
+            ca: process.env.DB_SSL_CA_FILE
+              ? readFileSync(process.env.DB_SSL_CA_FILE, 'utf8')
+              : undefined,
+          }
+        : false,
     connectionTimeoutMillis: 5000,
   });
   try {

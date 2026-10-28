@@ -61,7 +61,7 @@ export class CreateBlogDto {
     nullable: true,
     maxLength: 2048,
     description:
-      'HTTP(S) image URL; null clears it. Uploaded images use a server-generated /images URL.',
+      'HTTP(S) image URL; null clears it. Uploaded images use a public Supabase Storage URL.',
   })
   @Transform(({ value }: { value: unknown }) =>
     value === 'null' ? null : value,

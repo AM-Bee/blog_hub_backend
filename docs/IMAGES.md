@@ -28,25 +28,29 @@ Let EchoAPI set the multipart Content-Type and boundary automatically. Remove an
 
 ## Storage and URLs
 
-Files are stored in `src/asset/images` relative to the repository root, using a generated UUID filename and an extension inferred from the image signature. Original filenames are not used. Uploaded files are ignored by Git, and the directory remains outside `dist` so rebuilding does not erase uploads. Run the application from the repository root and retain this folder when moving the backend.
+New files are uploaded to the public Supabase Storage bucket `blog-images`, using a generated UUID filename and an extension inferred from the image signature. Original filenames are not used. Multer keeps the file in memory while NestJS validates and uploads it; new uploads are not written to the backend disk.
+
+### Supabase setup
+
+1. Open **Storage → New bucket**. Create `blog-images`, enable **Public bucket**, set the limit to 5 MB, and allow `image/jpeg`, `image/png`, and `image/webp`.
+2. Open **Project Settings → API Keys** and create/copy a server secret key (`sb_secret_...`).
+3. Configure the backend `.env`, then restart NestJS:
+
+```env
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SECRET_KEY=your-server-secret-key
+SUPABASE_STORAGE_BUCKET=blog-images
+```
+
+The secret key stays on the backend. Do not put it in frontend code, a `NEXT_PUBLIC_` variable, `.env.example`, or Git. Browser writes are not needed: the normal NestJS guards authorize uploads. Do not add anonymous upload/delete policies to the bucket. The database Data API can remain disabled; Storage is a separate API.
 
 The existing `blogs.cover_image_url` column stores a URL path such as:
 
 ```json
-{ "coverImageUrl": "/images/550e8400-e29b-41d4-a716-446655440000.png" }
+{ "coverImageUrl": "https://your-project-ref.supabase.co/storage/v1/object/public/blog-images/550e8400-e29b-41d4-a716-446655440000.png" }
 ```
 
-The backend serves it at:
-
-```text
-http://localhost:5300/images/550e8400-e29b-41d4-a716-446655440000.png
-```
-
-`/images` is outside the `/api/v1` prefix. On a frontend running on a different origin, resolve the returned path against the backend origin:
-
-```ts
-const imageUrl = new URL(blog.coverImageUrl, 'http://localhost:5300').href;
-```
+The frontend can use this absolute URL directly. The existing `/images` static route still serves older files from `src/asset/images`; existing local files are not copied to Supabase automatically.
 
 Image URLs are publicly accessible, including covers attached to drafts. Blog content and editing routes retain their existing permissions.
 
@@ -55,15 +59,16 @@ Image URLs are publicly accessible, including covers attached to drafts. Blog co
 - One file, using the field name `image`; JPEG, PNG, and WebP only, maximum 5 MB. File MIME type and image signature must agree. Unsupported/disguised files return 400; oversized uploads return 413.
 - Send either an image file or an external `coverImageUrl`, not both. External URLs retain HTTP(S) validation. Uploaded paths are generated internally.
 - Omit the image to keep the existing cover during updates. Set `coverImageUrl` to null in JSON, or the text `null` in multipart, to clear the cover reference.
-- Failed validation or forbidden mutations write no file. A failed database transaction removes its newly uploaded file.
+- Failed validation or forbidden mutations upload no file. If a database transaction fails after an upload succeeds, the existing rollback cleanup removes that new object from Supabase. Cleanup errors are reported rather than silently ignored.
 - Replacing, clearing, or deleting a blog preserves previously stored image files. Automatic cleanup of old images is not included; this avoids removing images that may be referenced elsewhere.
+- Missing Storage configuration, rejected uploads, network failures, or failed cleanup return 503. Requests time out after 30 seconds. A network interruption after an upload reaches Storage, or a failed cleanup request, can leave an unused object; review unused files manually if that happens.
 
 No schema migration is needed for uploads; the existing cover URL column is reused.
 
 ## Verification
 
 ```bash
-BLOGHUB_RUN_HTTP_TESTS=1 BLOGHUB_RUN_DB_TESTS=1 npm test
+npm test -- src/blogs/blog-image.store.spec.ts
 ```
 
-HTTP checks exercise multipart parsing, storage/static serving, authentication, invalid fields/files, size limits, JSON compatibility, and image-only updates. PostgreSQL checks verify URL persistence, ownership, and cleanup after failed transactions. Tests clean up the image files they create and use an isolated database schema.
+Unit tests mock the Storage HTTP API and check upload bytes/headers, public URLs, file validation, missing configuration, safe provider errors, rollback deletion, and rejection of foreign paths. They do not upload real files or modify the database. After setting up the bucket/key, test an authenticated multipart blog creation and open its returned cover URL to confirm live Storage delivery.

@@ -6,7 +6,7 @@ The seed implementation is in `src/seed.ts`. Run from the repository root:
 npm run seed
 ```
 
-The command compiles TypeScript and runs `dist/seed.js`. It connects using the database values in local `.env`. Start the backend once first so the existing `synchronize: true` setup creates the tables. The seed itself does not change the schema. Production mode rejects demo seeding.
+The command compiles TypeScript and runs `dist/seed.js`. It connects using the database and SSL settings in local `.env`. Run `npm run migration:run` first to create the tables. The seed itself does not change the schema. Production mode rejects demo seeding. Demo accounts use known credentials, so do not run the demo seed on a publicly accessible deployment.
 
 ## Sample accounts
 

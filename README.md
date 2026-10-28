@@ -29,6 +29,8 @@
 
 Folder layout, repository responsibilities, and coding conventions are documented in [docs/STRUCTURE.md](docs/STRUCTURE.md).
 
+Database connections, SSL certificates, and fresh database migrations are documented in [docs/SUPABASE.md](docs/SUPABASE.md). Run `npm run migration:run` before starting the backend; automatic schema synchronization is disabled.
+
 BlogHub authentication configuration and API examples are documented in [docs/AUTH.md](docs/AUTH.md). Set `JWT_SECRET` in `.env` before starting the application; `.env.example` lists the configuration fields.
 
 Google login and explicit account linking are documented in [docs/GOOGLE_AUTH.md](docs/GOOGLE_AUTH.md). The backend is implemented; frontend Auth.js integration is the next stage.

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DataSource } from 'typeorm';
@@ -314,6 +315,14 @@ async function main() {
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
+    ssl:
+      process.env.DB_SSL === 'true'
+        ? {
+            ca: process.env.DB_SSL_CA_FILE
+              ? readFileSync(process.env.DB_SSL_CA_FILE, 'utf8')
+              : undefined,
+          }
+        : false,
     entities: seedEntities,
     synchronize: false,
     installExtensions: false,

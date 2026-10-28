@@ -88,7 +88,7 @@ Tests stay alongside the feature code. Existing tests construct the real service
 
 AppModule loads `.env` through the global ConfigModule. DatabaseModule configures TypeORM through ConfigService using DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, and DB_NAME. DB_PORT is converted to a number; if omitted, the API defaults to its previous port, 5433. Set DB_PORT explicitly so the API, seed scripts, and database tests use the same database port.
 
-This refactor does not change table mappings or require a migration. Development schema synchronization remains enabled for existing modules; `NODE_ENV=production` disables it. The new chat tables are migration-managed in every environment. A complete production baseline migration remains a separate task.
+Application schema synchronization is disabled in every environment. Run `npm run migration:run` before starting the backend. The initial migration creates the core schema on a fresh database; the later migrations add Google accounts, audit logs, notifications, and chat tables/triggers. Hosted connection settings and SSL certificate setup are documented in [SUPABASE.md](SUPABASE.md).
 
 ## Verification
 
