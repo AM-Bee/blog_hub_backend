@@ -28,8 +28,8 @@ async function bootstrap() {
     }),
   );
 
-  const PORT = process.env.PORT ?? 5300;
-  const HOST = process.env.HOST ?? 'localhost';
+const PORT = Number(process.env.PORT ?? 5300);
+const HOST = process.env.HOST ?? '0.0.0.0';
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('BlogHub API')
@@ -44,7 +44,7 @@ async function bootstrap() {
   );
 
   await app.listen(PORT, HOST);
-  console.log(`NestJS App is running on http://${HOST}:${PORT}`);
+console.log(`NestJS App is running on http://${HOST}:${PORT}`);
 
   // console.log(`Swagger UI is available at http://${HOST}:${PORT}/api`);
 }
