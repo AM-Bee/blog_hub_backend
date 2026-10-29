@@ -16,6 +16,7 @@ import { BlogEntity } from '../blogs/entities/blog.entity.js';
 import { validateDto } from '../common/validation.utils.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 
 @Injectable()
 export class AdminUsersRepository {
@@ -101,6 +102,26 @@ export class AdminUsersRepository {
           { revokedAt: new Date() },
         );
       }
+    });
+    return this.findOne(id);
+  }
+
+  async updateRole(id: string, input: UpdateUserRoleDto): Promise<AdminUser> {
+    const dto = await validateDto(input, UpdateUserRoleDto);
+    await this.userRepository.manager.transaction(async (manager) => {
+      // Share the account lock with status updates so a disabled author cannot be promoted concurrently.
+      const user = await manager.findOne(UserEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) throw new NotFoundException('User not found');
+      if (user.role === UserRole.ADMIN) return;
+      if (user.status !== UserStatus.ACTIVE) {
+        throw new ForbiddenException(
+          'Enable the author account before promoting it',
+        );
+      }
+      await manager.update(UserEntity, { id }, { role: dto.role });
     });
     return this.findOne(id);
   }

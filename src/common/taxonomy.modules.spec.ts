@@ -191,6 +191,9 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       expect(document.paths['/api/v1/admin/users'].get?.security).toEqual([
         { bearer: [] },
       ]);
+      expect(document.paths['/api/v1/admin/users/{id}'].patch?.security).toEqual([
+        { bearer: [] },
+      ]);
       expect(document.paths['/api/v1/me/notifications'].get?.security).toEqual([
         { bearer: [] },
       ]);

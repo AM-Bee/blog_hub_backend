@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import dotenv from 'dotenv';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -91,6 +92,15 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         username: process.env.DB_USERNAME,
         password: process.env.DB_PASSWORD,
         database: process.env.DB_NAME,
+        ssl:
+          process.env.DB_SSL === 'true'
+            ? {
+                ca: process.env.DB_SSL_CA_FILE
+                  ? readFileSync(process.env.DB_SSL_CA_FILE, 'utf8')
+                  : undefined,
+              }
+            : false,
+        uuidExtension: 'pgcrypto' as const,
         installExtensions: false,
         connectTimeoutMS: 5000,
       };
@@ -159,7 +169,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       bobToken = (await login(bob.email).expect(200)).body.accessToken;
       adminToken = (await login('admin@acceptance.example').expect(200)).body
         .accessToken;
-    }, 30000);
+    }, 120000);
     afterAll(async () => {
       sockets.forEach((socket) => socket.disconnect());
       await app?.close();
@@ -306,6 +316,92 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         .send({ status: 'active' })
         .expect(200);
     });
+
+    it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {
+      const authorToken = (await login(bob.email).expect(200)).body.accessToken;
+      const path = `/api/v1/admin/users/${bob.id}`;
+      const promote = (token: string, body: object = { role: 'admin' }) =>
+        request(app.getHttpServer())
+          .patch(path)
+          .set('Authorization', `Bearer ${token}`)
+          .send(body);
+
+      await request(app.getHttpServer())
+        .patch(path)
+        .send({ role: 'admin' })
+        .expect(401);
+      await promote(authorToken).expect(403);
+      for (const body of [
+        {},
+        { role: 'author' },
+        { role: 'owner' },
+        { role: 'admin', status: 'active' },
+      ]) {
+        await promote(adminToken, body).expect(400);
+      }
+      await request(app.getHttpServer())
+        .patch('/api/v1/admin/users/not-a-uuid')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'admin' })
+        .expect(400);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${randomUUID()}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'admin' })
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .patch(`${path}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'disabled' })
+        .expect(200);
+      await promote(adminToken).expect(403);
+      expect(
+        (
+          await database
+            .getRepository(UserEntity)
+            .findOneByOrFail({ id: bob.id })
+        ).role,
+      ).toBe(UserRole.AUTHOR);
+      await request(app.getHttpServer())
+        .patch(`${path}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'active' })
+        .expect(200);
+      bobToken = (await login(bob.email).expect(200)).body.accessToken;
+      const result = await promote(adminToken).expect(200);
+      expect(result.body).toMatchObject({
+        id: bob.id,
+        role: 'admin',
+        status: 'active',
+        blogCount: 0,
+      });
+      for (const field of [
+        'passwordHash',
+        'passwordResetCodeHash',
+        'passwordResetAttempts',
+      ]) {
+        expect(result.body).not.toHaveProperty(field);
+      }
+      expect(
+        (
+          await database
+            .getRepository(UserEntity)
+            .findOneByOrFail({ id: bob.id })
+        ).role,
+      ).toBe(UserRole.ADMIN);
+      const repeated = await promote(adminToken).expect(200);
+      expect(repeated.body.updatedAt).toBe(result.body.updatedAt);
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/users')
+        .set('Authorization', `Bearer ${bobToken}`)
+        .expect(200);
+      const profile = await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${bobToken}`)
+        .expect(200);
+      expect(profile.body.role).toBe('admin');
+    }, 60000);
 
     it('runs private chat through AppModule and invalidates existing socket credentials on password change', async () => {
       bobToken = (await login(bob.email).expect(200)).body.accessToken;

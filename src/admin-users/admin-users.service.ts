@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { AdminUsersRepository } from './admin-users.repository.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 
 @Injectable()
 export class AdminUsersService {
@@ -20,5 +21,9 @@ export class AdminUsersService {
 
   updateStatus(id: string, dto: UpdateUserStatusDto) {
     return this.repository.updateStatus(id, dto);
+  }
+
+  updateRole(id: string, dto: UpdateUserRoleDto) {
+    return this.repository.updateRole(id, dto);
   }
 }

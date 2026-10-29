@@ -24,6 +24,7 @@ import { UserRole } from '../users/enums/user-role.enum.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import {
   AdminUserResponseDto,
   UserPageResponseDto,
@@ -54,6 +55,17 @@ export class AdminUsersController {
   @ApiOkResponse({ type: AdminUserResponseDto })
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.users.findOne(id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Promote an active author to admin' })
+  @ApiBody({ type: UpdateUserRoleDto })
+  @ApiOkResponse({ type: AdminUserResponseDto })
+  updateRole(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(dtoValidationPipe(UpdateUserRoleDto)) dto: UpdateUserRoleDto,
+  ) {
+    return this.users.updateRole(id, dto);
   }
 
   @Patch(':id/status')

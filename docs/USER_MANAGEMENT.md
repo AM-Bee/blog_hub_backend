@@ -76,11 +76,40 @@ Returns HTTP 200 with the updated profile and `blogCount`.
 - Re-enabling preserves the password and requires a fresh login. Old sessions and reset codes remain invalid.
 - Blogs, categories, tags, and images are preserved. Published blogs remain public; drafts remain private.
 - Sending the same status again is allowed. Repeated disable requests still revoke any sessions and clear reset codes.
-- No deletion, role changes, admin profile editing, or admin password override routes were added.
+- No account deletion, admin profile editing, or admin password override routes are provided.
+
+## Promote an author to admin
+
+`PATCH /admin/users/:id`
+
+Sign in as an existing active admin. Send only this JSON body with your admin Bearer token:
+
+```json
+{
+  "role": "admin"
+}
+```
+
+For the deployed backend, the full URL is:
+
+```text
+PATCH https://blog-hub-backend-cnzm.onrender.com/api/v1/admin/users/<user-uuid>
+```
+
+Returns HTTP 200 with the updated profile and `blogCount`, without credentials.
+
+- Authors cannot promote themselves or anyone else; their requests return 403.
+- Disabled authors must be enabled through `PATCH /admin/users/:id/status` first. Promotion does not enable disabled accounts.
+- Repeating the request for an existing admin succeeds without changing the account again.
+- Only `role: "admin"` is accepted. Demotion, other role names, and extra fields are rejected with 400.
+- Existing posts and login sessions are preserved. Authentication reads the current database role, so the new permissions apply on the next authenticated request. Refresh `/auth/me` in the frontend to update its displayed role.
+- The promoted account receives the same permissions as other admins. The existing status endpoint manages authors only, so it cannot disable a promoted admin.
+
+No database migration is needed; the existing `users.role` enum already includes `admin`.
 
 ## Setup and testing
 
-Restart the backend after updating the code. The current development TypeORM `synchronize: true` configuration adds the `users.status` enum column and defaults existing/new accounts to `active`. Environments with synchronization disabled need a migration before deploying this change. Swagger documents the routes under `admin-users` at `/api/docs`. `/auth/me` now also includes the account status.
+Restart the backend after updating the code, or push the changes and redeploy on Render. Swagger documents the routes under `admin-users` at `/api/docs`. `/auth/me` includes the account status and role. Automatic schema synchronization is disabled; fresh databases use `npm run migration:run` as described in [SUPABASE.md](SUPABASE.md).
 
 Useful EchoAPI checks:
 
@@ -93,9 +122,15 @@ Useful EchoAPI checks:
 | Unknown valid user UUID | 404 |
 | Disabled author uses an old access or refresh token | 401 |
 | Re-enabled author uses an old access token | 401; log in again |
+| Author calls the promotion route | 403 |
+| Admin promotes a disabled author | 403; enable the author first |
+| Admin promotes an active author | 200; returned role is `admin` |
+| Repeated promotion | 200; `updatedAt` is unchanged |
+| Demotion or extra promotion fields | 400 |
 
-Integration tests use a uniquely named temporary PostgreSQL schema and mocked email delivery. They cover real HTTP guards/validation, filters, pagination, safe responses, blog preservation, revocation, password-reset invalidation, re-enabling, and concurrent login/disable. They do not modify application rows or send emails.
+The promotion acceptance test uses a uniquely named temporary PostgreSQL schema. It checks real HTTP authentication, author rejection, missing users, UUID and body validation, disabled-account rejection, safe responses, database persistence, repeated promotion, and immediate permission changes for an existing token. It does not modify application users or send emails.
 
 ```bash
-BLOGHUB_RUN_DB_TESTS=1 npm test -- src/admin-users/admin-users.postgres.spec.ts src/users/account.postgres.spec.ts
+npm test -- src/admin-users/dto/update-user-role.dto.spec.ts
+BLOGHUB_RUN_DB_TESTS=1 npm run test:e2e -- --testNamePattern "promotes authors"
 ```

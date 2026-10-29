@@ -23,3 +23,5 @@ Rerunning for an existing admin leaves their password and profile unchanged. An 
 Log in through `POST /api/v1/auth/login` using this email/password. With EchoAPI, include `Origin: http://localhost:3000` (or your configured frontend origin). Use the returned access token as `Authorization: Bearer <accessToken>` for admin actions. `GET /api/v1/auth/me` will return `role: admin`.
 
 Remove `ADMIN_PASSWORD` from `.env` after successful creation if you no longer need to provision an admin. Public registration continues to create authors only.
+
+After the first admin exists, that admin can promote an active author with `PATCH /api/v1/admin/users/:id` and `{ "role": "admin" }`. See [USER_MANAGEMENT.md](USER_MANAGEMENT.md) for permissions, response details, and testing.
