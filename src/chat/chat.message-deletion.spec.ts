@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { ForbiddenException } from '@nestjs/common';
+import {
+  MESSAGE_MAPPING_METADATA,
+  MESSAGE_METADATA,
+} from '@nestjs/websockets/constants';
 import { ChatGateway } from './chat.gateway.js';
 import type { AuthService } from '../auth/auth.service.js';
 import type { ChatService } from './chat.service.js';
@@ -18,15 +22,13 @@ function setup() {
   }));
   const deletedAt = new Date();
   const service = {
-    deleteMessage: vi
-      .fn()
-      .mockResolvedValue({
-        messageId,
-        conversationId,
-        deletedAt,
-        recipientId: bobId,
-        changed: true,
-      }),
+    deleteMessage: vi.fn().mockResolvedValue({
+      messageId,
+      conversationId,
+      deletedAt,
+      recipientId: bobId,
+      changed: true,
+    }),
   };
   const gateway = new ChatGateway(
     { authenticate } as unknown as AuthService,
@@ -58,6 +60,14 @@ function setup() {
 }
 
 describe('Message deletion gateway', () => {
+  it('registers the handler for the frontend message:delete event', () => {
+    const handler = ChatGateway.prototype.deleteMessage;
+    expect(Reflect.getMetadata(MESSAGE_MAPPING_METADATA, handler)).toBe(true);
+    expect(Reflect.getMetadata(MESSAGE_METADATA, handler)).toBe(
+      'message:delete',
+    );
+  });
+
   it('acknowledges deletion and notifies both participants without exposing internal routing fields', async () => {
     const { gateway, sender, receiver, service, deletedAt } = setup();
     const deletion = { messageId, conversationId, deletedAt };

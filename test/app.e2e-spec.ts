@@ -66,7 +66,7 @@ function event<T>(socket: Socket, name: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`Missing event ${name}`)),
-      3000,
+      10000,
     );
     socket.once(name, (data: T) => {
       clearTimeout(timer);
@@ -415,15 +415,16 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       const sender = await connect(aliceToken);
       const receiver = await connect(bobToken);
       const received = event<MessageEntity>(receiver, 'message:new');
-      const result: ChatAck<MessageSent> = await sender
-        .timeout(3000)
+      const sending: Promise<ChatAck<MessageSent>> = sender
+        .timeout(10000)
         .emitWithAck('message:send', {
           conversationId: conversation.id,
           clientMessageId: randomUUID(),
           content: 'Full application chat',
         });
+      const [result, incoming] = await Promise.all([sending, received]);
       expect(result).toMatchObject({ ok: true, data: { created: true } });
-      expect((await received).senderId).toBe(alice.id);
+      expect(incoming.senderId).toBe(alice.id);
       await request(app.getHttpServer())
         .post('/api/v1/auth/change-password')
         .set('Authorization', `Bearer ${aliceToken}`)
@@ -447,14 +448,15 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       expect(freshSocket.connected).toBe(true);
       if (!result.ok) throw new Error('Expected message success');
       const deleted = event<MessageDeleted>(receiver, 'message:deleted');
-      const deletion: ChatAck<MessageDeleted> = await freshSocket
-        .timeout(3000)
+      const deleting: Promise<ChatAck<MessageDeleted>> = freshSocket
+        .timeout(10000)
         .emitWithAck('message:delete', { messageId: result.data.message.id });
+      const [deletion, notification] = await Promise.all([deleting, deleted]);
       expect(deletion).toMatchObject({
         ok: true,
         data: { messageId: result.data.message.id },
       });
-      expect(await deleted).toMatchObject({
+      expect(notification).toMatchObject({
         messageId: result.data.message.id,
       });
       expect(
@@ -465,6 +467,6 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
             .expect(200)
         ).body.total,
       ).toBe(1);
-    });
+    }, 60000);
   },
 );

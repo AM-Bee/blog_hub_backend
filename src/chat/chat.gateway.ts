@@ -23,12 +23,14 @@ import { AuthService } from '../auth/auth.service.js';
 import { frontendOrigins } from '../auth/auth.config.js';
 import { validateDto } from '../common/validation.utils.js';
 import { ChatService } from './chat.service.js';
+import { DeleteMessageDto } from './dto/delete-message.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { ConversationEventDto } from './dto/conversation-event.dto.js';
 import type { ChatAck, ChatErrorCode } from './interface/chat-ack.interface.js';
 import type {
   ChatEvent,
   MessageSent,
+  MessageDeleted,
   ReadReceipt,
   TypingEvent,
 } from './interface/chat-event.interface.js';
@@ -51,7 +53,7 @@ type ChatSocket = Socket<
 >;
 
 @WebSocketGateway({
-  namespace: '/chat', 
+  namespace: '/chat',
   transports: ['websocket'],
   maxHttpBufferSize: 16 * 1024,
   cors: {
@@ -179,7 +181,7 @@ export class ChatGateway
     @ConnectedSocket() socket: ChatSocket,
     @MessageBody() input: unknown,
   ): Promise<ChatAck<MessageSent>> {
-    try {                                                                        
+    try {
       this.checkRateLimit(socket.data.userId, true);
       const userId = await this.authenticateSocket(socket);
       const dto = await validateDto(this.objectPayload(input), SendMessageDto);
@@ -194,6 +196,39 @@ export class ChatGateway
         ok: true,
         data: { message: result.message, created: result.created },
       };
+    } catch (error) {
+      return this.errorAck(error);
+    }
+  }
+
+  @SubscribeMessage('message:delete')
+  async deleteMessage(
+    @ConnectedSocket() socket: ChatSocket,
+    @MessageBody() input: unknown,
+  ): Promise<ChatAck<MessageDeleted>> {
+    try {
+      this.checkRateLimit(socket.data.userId);
+      const userId = await this.authenticateSocket(socket);
+      const dto = await validateDto(
+        this.objectPayload(input),
+        DeleteMessageDto,
+      );
+      const result = await this.chatService.deleteMessage(userId, dto);
+      const deletion: MessageDeleted = {
+        messageId: result.messageId,
+        conversationId: result.conversationId,
+        deletedAt: result.deletedAt,
+      };
+      if (result.changed) {
+        await Promise.all([
+          this.emitToUser(userId, { event: 'message:deleted', data: deletion }),
+          this.emitToUser(result.recipientId, {
+            event: 'message:deleted',
+            data: deletion,
+          }),
+        ]);
+      }
+      return { ok: true, data: deletion };
     } catch (error) {
       return this.errorAck(error);
     }
