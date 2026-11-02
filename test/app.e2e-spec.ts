@@ -13,6 +13,8 @@ import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { BlogEntity } from '../src/blogs/entities/blog.entity.js';
 import { BlogStatus } from '../src/blogs/enums/blog-status.enum.js';
+import { UserStatus } from '../src/users/enums/user-status.enum.js';
+import { ReactionEntity } from '../src/reactions/entities/reaction.entity.js';
 import { BlogCommentEntity } from '../src/comments/entities/blog-comment.entity.js';
 import { AppModule } from '../src/app.module.js';
 import { seedEntities } from '../src/seed.js';
@@ -119,6 +121,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           BlogAuditLogEntity,
           NotificationEntity,
           BlogCommentEntity,
+          ReactionEntity,
           ConversationEntity,
           MessageEntity,
         ],
@@ -428,6 +431,215 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       ).toBe(0);
       await request(app.getHttpServer()).get(path).expect(404);
     }, 120000);
+
+    it('counts replies and toggles blog, comment, and reply reactions with private user state and cascading cleanup', async () => {
+      const token = (await login(bob.email).expect(200)).body.accessToken;
+      const blogs = database.getRepository(BlogEntity);
+      const comments = database.getRepository(BlogCommentEntity);
+      const reactions = database.getRepository(ReactionEntity);
+      const blog = await blogs.save({
+        authorId: alice.id,
+        title: 'Reactions test',
+        slug: `reactions-${randomUUID()}`,
+        content: 'Test',
+        status: BlogStatus.PUBLISHED,
+      });
+      const root = await comments.save({
+        blogId: blog.id,
+        userId: alice.id,
+        parentId: null,
+        content: 'Comment',
+      });
+      const child = await comments.save({
+        blogId: blog.id,
+        userId: bob.id,
+        parentId: root.id,
+        content: 'Reply',
+      });
+      const endpoints = [
+        `/api/v1/blogs/${blog.id}/reactions`,
+        `/api/v1/comments/${root.id}/reactions`,
+        `/api/v1/comments/${child.id}/reactions`,
+      ];
+      const toggle = (path: string, type: string, accessToken = aliceToken) =>
+        request(app.getHttpServer())
+          .post(path)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ type });
+      const summary = (path: string, accessToken?: string) => {
+        const call = request(app.getHttpServer()).get(path);
+        return accessToken
+          ? call.set('Authorization', `Bearer ${accessToken}`)
+          : call;
+      };
+      for (const path of endpoints) {
+        expect((await summary(path).expect(200)).body).toEqual({
+          likeCount: 0,
+          dislikeCount: 0,
+          myReaction: null,
+        });
+        expect((await toggle(path, 'like').expect(200)).body).toEqual({
+          likeCount: 1,
+          dislikeCount: 0,
+          myReaction: 'like',
+        });
+        await toggle(path, 'like', token).expect(200);
+        expect((await toggle(path, 'dislike').expect(200)).body).toEqual({
+          likeCount: 1,
+          dislikeCount: 1,
+          myReaction: 'dislike',
+        });
+        expect((await summary(path, token).expect(200)).body.myReaction).toBe(
+          'like',
+        );
+        expect((await summary(path).expect(200)).body).toEqual({
+          likeCount: 1,
+          dislikeCount: 1,
+          myReaction: null,
+        });
+        expect((await toggle(path, 'dislike').expect(200)).body).toEqual({
+          likeCount: 1,
+          dislikeCount: 0,
+          myReaction: null,
+        });
+      }
+      const listPath = `/api/v1/blogs/${blog.id}/comments`;
+      expect(
+        (await request(app.getHttpServer()).get(listPath).expect(200)).body
+          .items[0],
+      ).toMatchObject({
+        id: root.id,
+        replyCount: 1,
+        likeCount: 1,
+        dislikeCount: 0,
+      });
+      expect(
+        (
+          await request(app.getHttpServer())
+            .get(`/api/v1/comments/${root.id}/replies`)
+            .expect(200)
+        ).body.items[0],
+      ).toMatchObject({ id: child.id, replyCount: 0, likeCount: 1 });
+      expect(
+        (
+          await request(app.getHttpServer())
+            .patch(`/api/v1/comments/${root.id}`)
+            .set('Authorization', `Bearer ${aliceToken}`)
+            .send({ content: 'Edited' })
+            .expect(200)
+        ).body,
+      ).toMatchObject({ replyCount: 1, likeCount: 1 });
+
+      const path = endpoints[0];
+      await request(app.getHttpServer())
+        .post(path)
+        .send({ type: 'like' })
+        .expect(401);
+      for (const body of [
+        {},
+        { type: 'love' },
+        { type: 'like', userId: bob.id },
+      ]) {
+        await request(app.getHttpServer())
+          .post(path)
+          .set('Authorization', `Bearer ${aliceToken}`)
+          .send(body)
+          .expect(400);
+      }
+      await summary(path, 'invalid').expect(401);
+      await toggle('/api/v1/blogs/not-a-uuid/reactions', 'like').expect(400);
+      await toggle(`/api/v1/comments/${randomUUID()}/reactions`, 'like').expect(
+        404,
+      );
+      await summary(`/api/v1/blogs/${randomUUID()}/reactions`).expect(404);
+      await database
+        .getRepository(UserEntity)
+        .update(bob.id, { status: UserStatus.DISABLED });
+      await summary(path, token).expect(401);
+      await toggle(path, 'dislike', token).expect(401);
+      await database
+        .getRepository(UserEntity)
+        .update(bob.id, { status: UserStatus.ACTIVE });
+
+      // Two real concurrent toggle requests must not create duplicate rows.
+      const concurrent = await Promise.all([
+        toggle(path, 'like'),
+        toggle(path, 'like'),
+      ]);
+      expect(concurrent.map((result) => result.status)).toEqual([200, 200]);
+      expect(
+        await reactions.countBy({ blogId: blog.id, userId: alice.id }),
+      ).toBe(0);
+      await expect(
+        reactions.insert({
+          blogId: blog.id,
+          userId: bob.id,
+          type: 'like' as ReactionEntity['type'],
+        }),
+      ).rejects.toMatchObject({ driverError: { code: '23505' } });
+      await expect(
+        reactions.insert({
+          blogId: blog.id,
+          commentId: root.id,
+          userId: alice.id,
+          type: 'like' as ReactionEntity['type'],
+        }),
+      ).rejects.toMatchObject({ driverError: { code: '23514' } });
+      await expect(
+        reactions.insert({
+          userId: alice.id,
+          type: 'like' as ReactionEntity['type'],
+        }),
+      ).rejects.toMatchObject({ driverError: { code: '23514' } });
+      await expect(
+        reactions.insert({
+          blogId: blog.id,
+          userId: alice.id,
+          type: 'love' as ReactionEntity['type'],
+        }),
+      ).rejects.toMatchObject({ driverError: { code: '23514' } });
+      await expect(
+        reactions.insert({
+          commentId: root.id,
+          userId: bob.id,
+          type: 'like' as ReactionEntity['type'],
+        }),
+      ).rejects.toMatchObject({ driverError: { code: '23505' } });
+
+      await blogs.update(blog.id, { status: BlogStatus.DRAFT });
+      for (const endpoint of endpoints) {
+        await summary(endpoint).expect(404);
+        await toggle(endpoint, 'like').expect(404);
+      }
+      await blogs.update(blog.id, { status: BlogStatus.PUBLISHED });
+      await request(app.getHttpServer())
+        .delete(`/api/v1/comments/${child.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(204);
+      expect(await reactions.countBy({ commentId: child.id })).toBe(0);
+      expect(
+        (await request(app.getHttpServer()).get(listPath).expect(200)).body
+          .items[0].replyCount,
+      ).toBe(0);
+      const newReply = await comments.save({
+        blogId: blog.id,
+        userId: bob.id,
+        parentId: root.id,
+        content: 'Another reply',
+      });
+      await toggle(`/api/v1/comments/${newReply.id}/reactions`, 'like').expect(
+        200,
+      );
+      await request(app.getHttpServer())
+        .delete(`/api/v1/comments/${root.id}`)
+        .set('Authorization', `Bearer ${aliceToken}`)
+        .expect(204);
+      expect(await reactions.countBy({ commentId: root.id })).toBe(0);
+      expect(await reactions.countBy({ commentId: newReply.id })).toBe(0);
+      expect(await reactions.countBy({ blogId: blog.id })).toBe(1);
+      await blogs.delete(blog.id);
+      expect(await reactions.countBy({ blogId: blog.id })).toBe(0);
+    }, 180000);
 
     it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {
       const authorToken = (await login(bob.email).expect(200)).body.accessToken;

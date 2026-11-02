@@ -29,6 +29,13 @@ export class CommentResponseDto implements BlogComment {
   @ApiProperty({ type: BlogAuthorDto }) author: BlogAuthorDto;
   @ApiProperty({ description: 'Plain text, never render as HTML' })
   content: string;
+  @ApiProperty({
+    minimum: 0,
+    description: 'Direct replies; always zero for a reply',
+  })
+  replyCount: number;
+  @ApiProperty({ minimum: 0 }) likeCount: number;
+  @ApiProperty({ minimum: 0 }) dislikeCount: number;
   @ApiProperty({ type: String, format: 'date-time' }) createdAt: Date;
   @ApiProperty({ type: String, format: 'date-time' }) updatedAt: Date;
 }

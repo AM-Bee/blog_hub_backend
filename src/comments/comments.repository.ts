@@ -12,6 +12,7 @@ import { BlogStatus } from '../blogs/enums/blog-status.enum.js';
 import { BlogPaginationQueryDto } from '../blogs/dto/list-blogs-query.dto.js';
 import type { AuthUser } from '../auth/interfaces/auth.interface.js';
 import { UserRole } from '../users/enums/user-role.enum.js';
+import { ReactionsRepository } from '../reactions/reactions.repository.js';
 import { validateDto } from '../common/validation.utils.js';
 import { BlogCommentEntity } from './entities/blog-comment.entity.js';
 import { CommentContentDto } from './dto/comment.dto.js';
@@ -22,7 +23,11 @@ import type {
 
 @Injectable()
 export class CommentsRepository {
-  constructor(@Inject(DataSource) private readonly database: DataSource) {}
+  constructor(
+    @Inject(DataSource) private readonly database: DataSource,
+    @Inject(ReactionsRepository)
+    private readonly reactions: ReactionsRepository,
+  ) {}
 
   async list(
     blogId: string,
@@ -41,7 +46,10 @@ export class CommentsRepository {
         take: query.limit,
       });
       return {
-        items: items.map((item) => this.response(item)),
+        items: await this.withCounts(
+          manager,
+          items.map((item) => this.response(item)),
+        ),
         page: query.page,
         limit: query.limit,
         total,
@@ -103,7 +111,8 @@ export class CommentsRepository {
         throw new ForbiddenException('You can only edit your own comments');
       }
       item.content = dto.content;
-      return this.response(await manager.save(BlogCommentEntity, item));
+      const saved = await manager.save(BlogCommentEntity, item);
+      return (await this.withCounts(manager, [this.response(saved)]))[0];
     });
   }
 
@@ -153,6 +162,36 @@ export class CommentsRepository {
     return item;
   }
 
+  private async withCounts(
+    manager: EntityManager,
+    items: BlogComment[],
+  ): Promise<BlogComment[]> {
+    if (!items.length) return items;
+    const ids = items.map((item) => item.id);
+    const replies = await manager
+      .createQueryBuilder(BlogCommentEntity, 'comment')
+      .select('comment.parentId', 'id')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('comment.parentId IN (:...ids)', { ids })
+      .groupBy('comment.parentId')
+      .getRawMany<{ id: string; count: number }>();
+    const replyCounts = new Map(replies.map((row) => [row.id, row.count]));
+    const reactionCounts = await this.reactions.summaries(
+      manager,
+      'commentId',
+      ids,
+    );
+    return items.map((item) => {
+      const counts = reactionCounts.get(item.id)!;
+      return {
+        ...item,
+        replyCount: replyCounts.get(item.id) ?? 0,
+        likeCount: counts.likeCount,
+        dislikeCount: counts.dislikeCount,
+      };
+    });
+  }
+
   private response(
     item: BlogCommentEntity,
     author: { id: string; displayName: string } = item.author,
@@ -163,6 +202,9 @@ export class CommentsRepository {
       parentId: item.parentId,
       author: { id: author.id, displayName: author.displayName },
       content: item.content,
+      replyCount: 0,
+      likeCount: 0,
+      dislikeCount: 0,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     };

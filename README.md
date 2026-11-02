@@ -43,6 +43,8 @@ Blogs CRUD, drafts/publishing, permissions, and EchoAPI examples are documented 
 
 Comments and one-level replies, deployment steps, and Postman examples are documented in [docs/COMMENTS.md](docs/COMMENTS.md).
 
+Blog/comment/reply likes and dislikes, reply totals, and deployment instructions are documented in [docs/REACTIONS.md](docs/REACTIONS.md).
+
 Create the first admin using `npm run seed:admin`; see [docs/ADMIN.md](docs/ADMIN.md) for local credentials and login instructions.
 
 Populate all tables with local demo data using `npm run seed`; see [docs/SEED.md](docs/SEED.md). The implementation is in `src/seed.ts`.

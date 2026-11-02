@@ -41,9 +41,9 @@ Schema synchronization is disabled for application startup. Run migrations befor
 starting the backend, both locally and in production.
 
 The initial migration creates seven core tables: users, categories, tags, blogs,
-blog_tags, refresh_sessions, and refresh_tokens. The following six migrations
+blog_tags, refresh_sessions, and refresh_tokens. The following seven migrations
 add Google accounts, audit logs, notifications, chat tables/triggers, message
-deletion, and comments/replies. A fresh database ends with 13 application tables
+deletion, comments/replies, and reactions. A fresh database ends with 14 application tables
 and a `migrations` tracking table. UUID defaults use PostgreSQL's built-in `gen_random_uuid()`.
 
 The initial migration skips creation if all seven core tables already exist.

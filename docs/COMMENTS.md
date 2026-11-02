@@ -67,8 +67,8 @@ replies and does not accept `userId`, `blogId`, or `parentId` in request bodies.
   replies by other users. Deleting a reply affects only that reply. Deleting a blog
   cascades to all its comments. Deleting a user also removes their comments and
   any replies under those comments. No soft deletion or undo is provided.
-- No notifications, reactions, real-time events, or comment-specific anti-spam
-  controls are added in this version.
+- Likes/dislikes and reply totals are documented in [REACTIONS.md](REACTIONS.md).
+- No notifications, real-time events, or comment-specific anti-spam controls are added.
 
 ## Endpoints (prefix `/api/v1`)
 
@@ -93,7 +93,8 @@ POST and PATCH bodies:
 ```
 
 A returned item contains `id`, `blogId`, `parentId`,
-`author: { id, displayName }`, `content`, `createdAt`, and `updatedAt`.
+`author: { id, displayName }`, `content`, `replyCount`, `likeCount`, `dislikeCount`,
+`createdAt`, and `updatedAt`. Replies always have `replyCount: 0`.
 No email, password, or session fields are exposed. A page contains `items`, `page`,
 `limit`, `total`, and `totalPages`. `total` counts only the requested level.
 

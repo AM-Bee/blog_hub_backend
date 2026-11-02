@@ -6,6 +6,9 @@ export interface BlogComment {
   parentId: string | null;
   author: BlogAuthor;
   content: string;
+  replyCount: number;
+  likeCount: number;
+  dislikeCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
