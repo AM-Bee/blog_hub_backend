@@ -11,6 +11,9 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
+import { BlogEntity } from '../src/blogs/entities/blog.entity.js';
+import { BlogStatus } from '../src/blogs/enums/blog-status.enum.js';
+import { BlogCommentEntity } from '../src/comments/entities/blog-comment.entity.js';
 import { AppModule } from '../src/app.module.js';
 import { seedEntities } from '../src/seed.js';
 import { UserEntity } from '../src/users/entities/user.entity.js';
@@ -115,6 +118,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           AuthAccountEntity,
           BlogAuditLogEntity,
           NotificationEntity,
+          BlogCommentEntity,
           ConversationEntity,
           MessageEntity,
         ],
@@ -316,6 +320,114 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         .send({ status: 'active' })
         .expect(200);
     });
+
+    it('supports published comments, one reply level, ownership, moderation, and cascade deletion', async () => {
+      const token = (await login(bob.email).expect(200)).body.accessToken;
+      const blogs = database.getRepository(BlogEntity);
+      const blog = await blogs.save({
+        authorId: alice.id,
+        title: 'Comment test',
+        slug: `comments-${randomUUID()}`,
+        content: 'Test',
+        status: BlogStatus.PUBLISHED,
+      });
+      const path = `/api/v1/blogs/${blog.id}/comments`;
+      const create = (body: object, accessToken = aliceToken) =>
+        request(app.getHttpServer())
+          .post(path)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(body);
+      const edit = (id: string, accessToken = aliceToken) =>
+        request(app.getHttpServer())
+          .patch(`/api/v1/comments/${id}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ content: 'Edited' });
+      const remove = (id: string, accessToken = aliceToken) =>
+        request(app.getHttpServer())
+          .delete(`/api/v1/comments/${id}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+      const reply = (id: string, accessToken = token) =>
+        request(app.getHttpServer())
+          .post(`/api/v1/comments/${id}/replies`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ content: 'Reply' });
+      const listReplies = (id: string) =>
+        request(app.getHttpServer()).get(`/api/v1/comments/${id}/replies`);
+
+      await request(app.getHttpServer())
+        .post(path)
+        .send({ content: 'Anonymous' })
+        .expect(401);
+      for (const body of [
+        { content: ' ' },
+        { content: 'a'.repeat(2001) },
+        { content: 'Spoofed', userId: bob.id },
+      ])
+        await create(body).expect(400);
+      const root = (await create({ content: '  First comment  ' }).expect(201))
+        .body;
+      expect(root).toMatchObject({
+        content: 'First comment',
+        blogId: blog.id,
+        parentId: null,
+        author: { id: alice.id },
+      });
+      expect(Object.keys(root.author).sort()).toEqual(['displayName', 'id']);
+      const child = (await reply(root.id).expect(201)).body;
+      expect(child.parentId).toBe(root.id);
+      expect((await listReplies(root.id).expect(200)).body.total).toBe(1);
+      await reply(child.id).expect(400);
+      await listReplies(child.id).expect(400);
+      await create({ content: 'Second comment' }, token).expect(201);
+      const page = (
+        await request(app.getHttpServer())
+          .get(path)
+          .query({ page: 1, limit: 1 })
+          .expect(200)
+      ).body;
+      expect(page).toMatchObject({ total: 2, totalPages: 2 });
+      expect(page.items[0].id).toBe(root.id);
+      await request(app.getHttpServer())
+        .get(path)
+        .query({ limit: 51 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .get('/api/v1/blogs/not-a-uuid/comments')
+        .expect(400);
+      await edit(root.id, token).expect(403);
+      await edit(root.id, adminToken).expect(403);
+      await remove(root.id, token).expect(403);
+      expect((await edit(root.id).expect(200)).body.content).toBe('Edited');
+      await edit(child.id, token).expect(200);
+      await remove(child.id, token).expect(204);
+      expect((await listReplies(root.id).expect(200)).body.total).toBe(0);
+      await reply(root.id).expect(201);
+
+      await blogs.update(blog.id, { status: BlogStatus.DRAFT });
+      await request(app.getHttpServer()).get(path).expect(404);
+      await listReplies(root.id).expect(404);
+      await create({ content: 'Hidden' }).expect(404);
+      await reply(root.id).expect(404);
+      await edit(root.id).expect(404);
+      await remove(root.id, adminToken).expect(404);
+      await blogs.update(blog.id, { status: BlogStatus.PUBLISHED });
+      await remove(root.id, adminToken).expect(204);
+      expect(
+        await database
+          .getRepository(BlogCommentEntity)
+          .countBy({ parentId: root.id }),
+      ).toBe(0);
+      await reply(root.id).expect(404);
+      await remove(randomUUID()).expect(404);
+      await create({ content: 'Last comment' }).expect(201);
+      await blogs.delete(blog.id);
+      expect(
+        await database
+          .getRepository(BlogCommentEntity)
+          .countBy({ blogId: blog.id }),
+      ).toBe(0);
+      await request(app.getHttpServer()).get(path).expect(404);
+    }, 120000);
 
     it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {
       const authorToken = (await login(bob.email).expect(200)).body.accessToken;

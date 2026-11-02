@@ -42,6 +42,7 @@ src/
 │   ├── blogs.module.ts
 │   └── blog-image.store.ts
 ├── admin-users/
+├── comments/
 ├── notifications/
 ├── chat/
 │   ├── dto/
@@ -60,7 +61,7 @@ src/
 └── seed.ts
 ```
 
-Categories, Tags, Admin Users, Notifications, and Chat have the same controller/service/repository/module pattern, with DTOs and interfaces. TypeORM entities stay with the owning feature. Admin Users reuses the Users entity, so it has no separate entity. Users is an internal module: self-service HTTP routes remain in Auth; admin routes remain in Admin Users.
+Categories, Tags, Admin Users, Comments, Notifications, and Chat have the same controller/service/repository/module pattern, with DTOs and interfaces. TypeORM entities stay with the owning feature. Admin Users reuses the Users entity, so it has no separate entity. Users is an internal module: self-service HTTP routes remain in Auth; admin routes remain in Admin Users.
 
 ## Responsibilities
 
@@ -88,7 +89,7 @@ Tests stay alongside the feature code. Existing tests construct the real service
 
 AppModule loads `.env` through the global ConfigModule. DatabaseModule configures TypeORM through ConfigService using DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, and DB_NAME. DB_PORT is converted to a number; if omitted, the API defaults to its previous port, 5433. Set DB_PORT explicitly so the API, seed scripts, and database tests use the same database port.
 
-Application schema synchronization is disabled in every environment. Run `npm run migration:run` before starting the backend. The initial migration creates the core schema on a fresh database; the later migrations add Google accounts, audit logs, notifications, and chat tables/triggers. Hosted connection settings and SSL certificate setup are documented in [SUPABASE.md](SUPABASE.md).
+Application schema synchronization is disabled in every environment. Run `npm run migration:run` before starting the backend. The initial migration creates the core schema on a fresh database; the later migrations add Google accounts, audit logs, notifications, and chat tables/triggers, and blog comments/replies. Hosted connection settings and SSL certificate setup are documented in [SUPABASE.md](SUPABASE.md).
 
 ## Verification
 

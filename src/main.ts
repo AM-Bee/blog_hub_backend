@@ -22,7 +22,7 @@ async function bootstrap() {
   app.use(
     '/images',
     express.static(BLOG_IMAGE_DIRECTORY, {
-      dotfiles: 'deny',
+      dotfiles: 'deny', 
       index: false,
       fallthrough: false,
     }),
@@ -49,3 +49,5 @@ console.log(`NestJS App is running on http://${HOST}:${PORT}`);
   // console.log(`Swagger UI is available at http://${HOST}:${PORT}/api`);
 }
 bootstrap();
+
+
