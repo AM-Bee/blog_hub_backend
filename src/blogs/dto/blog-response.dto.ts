@@ -23,6 +23,8 @@ export class BlogTagDto extends BlogCategoryDto implements BlogTag {
   @ApiProperty({ format: 'uuid' }) categoryId: string;
 }
 export class BlogBaseResponseDto implements BlogBase {
+  @ApiProperty({ description: 'Optimistic concurrency version' })
+  version: number;
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() title: string;
   @ApiProperty() slug: string;

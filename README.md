@@ -47,6 +47,8 @@ Blog/comment/reply likes and dislikes, reply totals, and deployment instructions
 
 The database-driven FAQ chatbot, admin management, seed command, and Postman steps are documented in [docs/FAQ.md](docs/FAQ.md).
 
+The mobile own-post sync contract and merge notes are documented in [docs/POST_SYNC.md](docs/POST_SYNC.md). Review rollout requirements before applying its migration.
+
 Create the first admin using `npm run seed:admin`; see [docs/ADMIN.md](docs/ADMIN.md) for local credentials and login instructions.
 
 Populate all tables with local demo data using `npm run seed`; see [docs/SEED.md](docs/SEED.md). The implementation is in `src/seed.ts`.

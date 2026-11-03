@@ -65,7 +65,9 @@ export class BlogsService {
     return this.repository.update(id, dto, user, image);
   }
 
-  remove(id: string, user: AuthUser) {
-    return this.repository.remove(id, user);
+  remove(id: string, user: AuthUser, version?: number) {
+    return version === undefined
+      ? this.repository.remove(id, user)
+      : this.repository.remove(id, user, undefined, version);
   }
 }

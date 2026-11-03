@@ -49,6 +49,12 @@ import type {
 
 @Injectable()
 export class BlogsRepository {
+  private transaction<T>(
+    manager: EntityManager | undefined,
+    action: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return manager ? action(manager) : this.dataSource.transaction(action);
+  }
   constructor(
     @InjectRepository(BlogEntity)
     private readonly blogRepository: Repository<BlogEntity>,
@@ -61,6 +67,7 @@ export class BlogsRepository {
     input: CreateBlogDto,
     user: AuthUser,
     image?: Express.Multer.File,
+    write?: { manager: EntityManager; id: string; uploaded: string[] },
   ): Promise<Blog> {
     this.assertWriter(user);
     const dto = await validateDto(input, CreateBlogDto);
@@ -70,9 +77,13 @@ export class BlogsRepository {
     try {
       const baseSlug = taxonomySlug(dto.title) || 'post';
       for (let attempt = 0; attempt < 3; attempt++) {
-        const slug = attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID()}`;
+        const slug = write
+          ? `${baseSlug}-${write.id}`
+          : attempt === 0
+            ? baseSlug
+            : `${baseSlug}-${randomUUID()}`;
         try {
-          const id = await this.dataSource.transaction(async (manager) => {
+          const id = await this.transaction(write?.manager, async (manager) => {
             await this.checkCategoryAndTags(
               manager,
               dto.categoryId,
@@ -80,8 +91,10 @@ export class BlogsRepository {
             );
             if (image && !imageUrl) {
               imageUrl = await this.images.save(image);
+              write?.uploaded.push(imageUrl);
             }
             const blog = manager.create(BlogEntity, {
+              ...(write ? { id: write.id } : {}),
               authorId: user.id,
               categoryId: dto.categoryId,
               title: dto.title,
@@ -97,8 +110,13 @@ export class BlogsRepository {
             return saved.id;
           });
           committed = true;
-          return this.findDetail(id);
+          return this.findDetail(id, write?.manager);
         } catch (error) {
+          if (write && this.isSlugConflict(error)) {
+            throw new ConflictException(
+              'Unable to generate a unique blog slug',
+            );
+          }
           if (!this.isSlugConflict(error)) {
             throw error;
           }
@@ -106,7 +124,7 @@ export class BlogsRepository {
       }
       throw new ConflictException('Unable to generate a unique blog slug');
     } finally {
-      if (imageUrl && !committed) {
+      if (imageUrl && !committed && !write) {
         await this.images.discard(imageUrl);
       }
     }
@@ -259,17 +277,23 @@ export class BlogsRepository {
     input: UpdateBlogDto,
     user: AuthUser,
     image?: Express.Multer.File,
+    write?: { manager: EntityManager; uploaded: string[] },
   ): Promise<Blog> {
     this.assertWriter(user);
     const dto = await validateDto(input, UpdateBlogDto);
     this.assertImageInput(dto, image);
-    if (!image && !Object.values(dto).some((value) => value !== undefined)) {
+    if (
+      !image &&
+      !Object.entries(dto).some(
+        ([key, value]) => key !== 'expectedVersion' && value !== undefined,
+      )
+    ) {
       throw new BadRequestException('Provide at least one editable field');
     }
     let imageUrl: string | undefined;
     let committed = false;
     try {
-      await this.dataSource.transaction(async (manager) => {
+      await this.transaction(write?.manager, async (manager) => {
         const blog = await manager.findOne(BlogEntity, {
           where: { id },
           lock: { mode: 'pessimistic_write' },
@@ -278,6 +302,14 @@ export class BlogsRepository {
           throw new NotFoundException('Blog not found');
         }
         this.assertOwner(blog, user);
+        if (
+          dto.expectedVersion !== undefined &&
+          dto.expectedVersion !== blog.version
+        ) {
+          throw new ConflictException(
+            'This post changed on another device. Reopen it before editing.',
+          );
+        }
         if (blog.publicationBlocked && dto.status === BlogStatus.PUBLISHED) {
           throw new ForbiddenException(
             'This post was unpublished by an admin. Only an admin can publish it through the admin status route.',
@@ -302,6 +334,7 @@ export class BlogsRepository {
         );
         if (image) {
           imageUrl = await this.images.save(image);
+          write?.uploaded.push(imageUrl);
         }
         if (dto.title !== undefined) {
           blog.title = dto.title;
@@ -336,16 +369,21 @@ export class BlogsRepository {
       });
       committed = true;
     } finally {
-      if (imageUrl && !committed) {
+      if (imageUrl && !committed && !write) {
         await this.images.discard(imageUrl);
       }
     }
-    return this.findDetail(id);
+    return this.findDetail(id, write?.manager);
   }
 
-  async remove(id: string, user: AuthUser): Promise<void> {
+  async remove(
+    id: string,
+    user: AuthUser,
+    transactionManager?: EntityManager,
+    expectedVersion?: number,
+  ): Promise<void> {
     this.assertWriter(user);
-    await this.dataSource.transaction(async (manager) => {
+    await this.transaction(transactionManager, async (manager) => {
       const blog = await manager.findOne(BlogEntity, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -354,6 +392,11 @@ export class BlogsRepository {
         throw new NotFoundException('Blog not found');
       }
       this.assertOwnerOrAdmin(blog, user);
+      if (expectedVersion !== undefined && blog.version !== expectedVersion) {
+        throw new ConflictException(
+          'This post changed on another device. Reopen it before deleting.',
+        );
+      }
       const before = await this.auditSnapshot(manager, id);
       await this.recordAudit(manager, user, before, null);
       if (user.role === UserRole.ADMIN && blog.authorId !== user.id) {
@@ -522,16 +565,33 @@ export class BlogsRepository {
     };
   }
 
-  private async findDetailEntity(id: string): Promise<BlogEntity> {
-    const blog = await this.viewQuery().where('blog.id = :id', { id }).getOne();
+  private async findDetailEntity(
+    id: string,
+    manager?: EntityManager,
+  ): Promise<BlogEntity> {
+    const blog = await this.viewQuery(manager)
+      .where('blog.id = :id', { id })
+      .getOne();
     if (!blog) {
       throw new NotFoundException('Blog not found');
     }
     return blog;
   }
 
-  private async findDetail(id: string): Promise<Blog> {
-    return this.toResponse(await this.findDetailEntity(id));
+  private async findDetail(id: string, manager?: EntityManager): Promise<Blog> {
+    return this.toResponse(await this.findDetailEntity(id, manager));
+  }
+
+  async syncPage(user: AuthUser, after?: string) {
+    const query = this.viewQuery().where('blog.authorId = :authorId', {
+      authorId: user.id,
+    });
+    if (after) query.andWhere('blog.id > :after', { after });
+    const rows = await query.orderBy('blog.id', 'ASC').take(21).getMany();
+    return {
+      items: rows.slice(0, 20).map((row) => this.toResponse(row)),
+      nextCursor: rows.length > 20 ? rows[19].id : null,
+    };
   }
 
   private async list(
@@ -615,6 +675,7 @@ export class BlogsRepository {
 
   private toResponse(blog: BlogEntity): Blog {
     return {
+      version: blog.version,
       id: blog.id,
       title: blog.title,
       slug: blog.slug,

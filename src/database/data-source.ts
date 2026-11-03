@@ -12,6 +12,8 @@ import { AddBlogComments1793577600000 } from './migrations/1793577600000-AddBlog
 import { AddReactions1793577700000 } from './migrations/1793577700000-AddReactions.js';
 import { AddFaqs1793664000000 } from './migrations/1793664000000-AddFaqs.js';
 
+import { AddPostSync1793664100000 } from './migrations/1793664100000-AddPostSync.js';
+
 // Used only by migration commands. Application startup keeps its current configuration.
 export default new DataSource({
   type: 'postgres',
@@ -39,5 +41,6 @@ export default new DataSource({
     AddBlogComments1793577600000,
     AddReactions1793577700000,
     AddFaqs1793664000000,
+    AddPostSync1793664100000,
   ],
 });

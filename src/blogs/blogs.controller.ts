@@ -32,7 +32,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { blogImageUploadOptions } from './blog-image.store.js';
 import { BlogsService } from './blogs.service.js';
 import { CreateBlogDto } from './dto/create-blog.dto.js';
-import { UpdateBlogDto } from './dto/update-blog.dto.js';
+import { UpdateBlogDto, DeleteBlogQueryDto } from './dto/update-blog.dto.js';
 import { UpdateBlogStatusDto } from './dto/update-blog-status.dto.js';
 import {
   ListBlogsQueryDto,
@@ -220,7 +220,13 @@ export class BlogsController {
   @ApiOperation({
     summary: 'Edit or publish your own blog (authors and admins)',
   })
-  @UseInterceptors(FileInterceptor('image', blogImageUploadOptions))
+  @UseInterceptors(
+    FileInterceptor('image', {
+      ...blogImageUploadOptions,
+      // All six editable fields plus expectedVersion must fit in a multipart PATCH.
+      limits: { ...blogImageUploadOptions.limits, fields: 7, parts: 8 },
+    }),
+  )
   @ApiConsumes('application/json', 'multipart/form-data')
   @ApiBody({
     schema: {
@@ -259,7 +265,11 @@ export class BlogsController {
   remove(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Req() request: AuthenticatedRequest,
+    @Query(dtoValidationPipe(DeleteBlogQueryDto))
+    query: DeleteBlogQueryDto = {},
   ) {
-    return this.blogsService.remove(id, request.user);
+    return query.version === undefined
+      ? this.blogsService.remove(id, request.user)
+      : this.blogsService.remove(id, request.user, query.version);
   }
 }

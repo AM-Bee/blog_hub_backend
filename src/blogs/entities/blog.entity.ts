@@ -22,6 +22,9 @@ export class BlogEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ type: 'integer', default: 1 })
+  version: number;
+
   @Index()
   @Column({ name: 'author_id', type: 'uuid' })
   authorId: string;

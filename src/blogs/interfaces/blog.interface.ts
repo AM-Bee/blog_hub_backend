@@ -16,6 +16,7 @@ export interface BlogTag extends BlogCategory {
 }
 
 export interface BlogBase {
+  version: number;
   id: string;
   title: string;
   slug: string;

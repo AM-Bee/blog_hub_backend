@@ -1,3 +1,4 @@
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import helmet from 'helmet';
@@ -8,7 +9,9 @@ import express from 'express';
 import { BLOG_IMAGE_DIRECTORY } from './blogs/blog-image.store.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Valid 100,000-character Unicode posts can exceed Express's default JSON limit.
+  app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('api/v1');
 
   app.enableCors({ origin: frontendOrigins(), credentials: true });
@@ -22,14 +25,14 @@ async function bootstrap() {
   app.use(
     '/images',
     express.static(BLOG_IMAGE_DIRECTORY, {
-      dotfiles: 'deny', 
+      dotfiles: 'deny',
       index: false,
       fallthrough: false,
     }),
   );
 
-const PORT = Number(process.env.PORT ?? 5300);
-const HOST = process.env.HOST ?? '0.0.0.0';
+  const PORT = Number(process.env.PORT ?? 5300);
+  const HOST = process.env.HOST ?? '0.0.0.0';
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('BlogHub API')
@@ -44,10 +47,8 @@ const HOST = process.env.HOST ?? '0.0.0.0';
   );
 
   await app.listen(PORT, HOST);
-console.log(`NestJS App is running on http://${HOST}:${PORT}`);
+  console.log(`NestJS App is running on http://${HOST}:${PORT}`);
 
   // console.log(`Swagger UI is available at http://${HOST}:${PORT}/api`);
 }
 bootstrap();
-
-

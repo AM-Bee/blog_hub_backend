@@ -4,13 +4,20 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { Test } from '@nestjs/testing';
-import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DataSource } from 'typeorm';
 import bcrypt from 'bcrypt';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
+import type { Response as HttpResponse } from 'supertest';
 import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
+import migrationSource from '../src/database/data-source.js';
+import { BlogImageStore } from '../src/blogs/blog-image.store.js';
+import { PostSyncOperationEntity } from '../src/blogs/entities/post-sync-operation.entity.js';
+import { CategoryEntity } from '../src/categories/entities/category.entity.js';
+import { TagEntity } from '../src/tags/entities/tag.entity.js';
+import { BlogTagEntity } from '../src/blogs/entities/blog-tag.entity.js';
 import { BlogEntity } from '../src/blogs/entities/blog.entity.js';
 import { BlogStatus } from '../src/blogs/enums/blog-status.enum.js';
 import { UserStatus } from '../src/users/enums/user-status.enum.js';
@@ -28,8 +35,6 @@ import { BlogAuditLogEntity } from '../src/blogs/entities/blog-audit-log.entity.
 import { NotificationEntity } from '../src/notifications/entities/notification.entity.js';
 import { ConversationEntity } from '../src/chat/entities/conversation.entity.js';
 import { MessageEntity } from '../src/chat/entities/message.entity.js';
-import { AddPrivateChat1792584000000 } from '../src/database/migrations/1792584000000-AddPrivateChat.js';
-import { AddMessageDeletion1793145600000 } from '../src/database/migrations/1793145600000-AddMessageDeletion.js';
 import type { ChatAck } from '../src/chat/interface/chat-ack.interface.js';
 import type {
   MessageDeleted,
@@ -41,7 +46,7 @@ const schema = `acceptance_test_${randomUUID().replaceAll('-', '')}`;
 const origin = 'http://localhost:3000';
 let connection: DataSource;
 let database: DataSource;
-let app: INestApplication;
+let app: NestExpressApplication;
 let alice: UserEntity;
 let bob: UserEntity;
 let aliceToken: string;
@@ -117,9 +122,12 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       database = await new DataSource({
         ...options,
         schema,
-        synchronize: true,
+        synchronize: false,
+        migrations: migrationSource.options.migrations,
+        extra: { options: `-c search_path=${schema},public` },
         entities: [
           ...seedEntities,
+          PostSyncOperationEntity,
           AuthAccountEntity,
           BlogAuditLogEntity,
           NotificationEntity,
@@ -131,28 +139,16 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           MessageEntity,
         ],
       }).initialize();
-      const runner = database.createQueryRunner();
-      await runner.connect();
-      await runner.startTransaction();
-      try {
-        await runner.query(`SET LOCAL search_path TO "${schema}", public`);
-        await new AddPrivateChat1792584000000().up(runner);
-        await new AddMessageDeletion1793145600000().up(runner);
-        await runner.commitTransaction();
-      } catch (error) {
-        await runner.rollbackTransaction();
-        throw error;
-      } finally {
-        await runner.release();
-      }
-      // Override the real application's connection so its dev synchronize cannot touch public tables.
+      await database.runMigrations();
+      // Every application query uses this disposable schema, including sync receipts.
       const module = await Test.createTestingModule({ imports: [AppModule] })
         .overrideProvider(DataSource)
         .useValue(database)
         .compile();
-      app = module.createNestApplication();
+      app = module.createNestApplication<NestExpressApplication>();
       app.useLogger(false);
       app.setGlobalPrefix('api/v1');
+      app.useBodyParser('json', { limit: '1mb' });
       app.use(cookieParser());
       await app.listen(0, '127.0.0.1');
       for (const name of ['alice', 'bob']) {
@@ -880,6 +876,372 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         });
       }
       expect(statuses).toContain(429);
+    }, 180000);
+
+    it('syncs a full own-post snapshot, stable IDs, optimistic writes, and scoped receipts using the mobile contract', async () => {
+      const path = '/api/v1/me/blog-sync';
+      const category = await database.getRepository(CategoryEntity).save({
+        name: 'Sync category',
+        normalizedName: 'sync category',
+        slug: `sync-${randomUUID()}`,
+        createdById: alice.id,
+      });
+      const tags = await database.getRepository(TagEntity).save(
+        ['One', 'Two'].map((name) => ({
+          name,
+          normalizedName: name.toLowerCase(),
+          slug: `tag-${randomUUID()}`,
+          categoryId: category.id,
+          createdById: alice.id,
+        })),
+      );
+      const input = {
+        operationId: randomUUID(),
+        entityId: randomUUID(),
+        type: 'CREATE',
+        input: {
+          title: 'Mobile story',
+          content: 'က'.repeat(100000),
+          categoryId: category.id,
+          tagIds: tags.map((tag) => tag.id),
+        },
+      };
+      const apply = (body: object, token = aliceToken) =>
+        request(app.getHttpServer())
+          .post(path)
+          .set('Authorization', `Bearer ${token}`)
+          .send(body);
+      await request(app.getHttpServer()).get(path).expect(401);
+      await request(app.getHttpServer()).post(path).send(input).expect(401);
+      const created = (await apply(input).expect(200)).body;
+      expect(created.blog).toMatchObject({
+        id: input.entityId,
+        title: 'Mobile story',
+        author: { id: alice.id },
+        status: 'draft',
+      });
+      expect(created.blog.content).toHaveLength(100000);
+      expect(created.blog.tags).toHaveLength(2);
+      expect(created.blog.version).toBeGreaterThan(1);
+      expect((await apply(input).expect(200)).body).toEqual(created);
+      await apply({
+        ...input,
+        input: { ...input.input, title: 'Changed reuse' },
+      }).expect(409);
+      await apply({ ...input, operationId: randomUUID() }).expect(409);
+      const update = {
+        operationId: randomUUID(),
+        entityId: input.entityId,
+        type: 'UPDATE',
+        baseVersion: created.blog.version,
+        input: { title: 'Mobile edited' },
+      };
+      const edited = (await apply(update).expect(200)).body.blog;
+      expect(edited.version).toBeGreaterThan(created.blog.version);
+      expect(edited.slug).toBe(created.blog.slug);
+      expect((await apply(update).expect(200)).body.blog).toEqual(edited);
+      await apply({ ...update, operationId: randomUUID() }).expect(409);
+      await apply({
+        ...update,
+        operationId: randomUUID(),
+        baseVersion: undefined,
+      }).expect(400);
+      await apply(
+        { ...update, operationId: randomUUID(), baseVersion: edited.version },
+        bobToken,
+      ).expect(403);
+      await apply(
+        { ...update, operationId: randomUUID(), baseVersion: edited.version },
+        adminToken,
+      ).expect(403);
+      // Operation UUIDs are private per user rather than globally unique.
+      const other = (
+        await apply({ ...input, entityId: randomUUID() }, bobToken).expect(200)
+      ).body.blog;
+      expect(other.author.id).toBe(bob.id);
+      const blogs = database.getRepository(BlogEntity);
+      await blogs.insert(
+        Array.from({ length: 21 }, (_, index) => ({
+          authorId: alice.id,
+          categoryId: category.id,
+          title: `Page ${index}`,
+          slug: `page-${randomUUID()}`,
+          content: 'Full body',
+          status: BlogStatus.DRAFT,
+        })),
+      );
+      const expected = (
+        await blogs.find({
+          where: { authorId: alice.id },
+          order: { id: 'ASC' },
+        })
+      ).map((blog) => blog.id);
+      const ids: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const response: HttpResponse = await request(app.getHttpServer())
+          .get(path)
+          .set('Authorization', `Bearer ${aliceToken}`)
+          .query(cursor ? { after: cursor } : {})
+          .expect(200);
+        expect(response.body.items.length).toBeLessThanOrEqual(20);
+        for (const blog of response.body.items) {
+          expect(blog.author.id).toBe(alice.id);
+          expect(blog.content).toBeDefined();
+          expect(blog.version).toBeGreaterThanOrEqual(1);
+          ids.push(blog.id);
+        }
+        cursor = response.body.nextCursor;
+      } while (cursor);
+      expect(ids).toEqual(expected);
+      expect(ids).not.toContain(other.id);
+      await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', `Bearer ${aliceToken}`)
+        .query({ after: 'bad' })
+        .expect(400);
+      await apply({
+        operationId: randomUUID(),
+        entityId: randomUUID(),
+        type: 'UPDATE',
+        baseVersion: 1,
+        input: { title: 'Deleted' },
+      }).expect(404);
+      const deletion = {
+        operationId: randomUUID(),
+        entityId: input.entityId,
+        type: 'DELETE',
+        baseVersion: edited.version,
+      };
+      expect((await apply(deletion).expect(200)).body).toEqual({
+        deleted: true,
+        id: input.entityId,
+      });
+      expect((await apply(deletion).expect(200)).body).toEqual({
+        deleted: true,
+        id: input.entityId,
+      });
+      await apply({ ...deletion, operationId: randomUUID() }).expect(200);
+      await apply({
+        ...update,
+        operationId: randomUUID(),
+        baseVersion: edited.version,
+      }).expect(404);
+    }, 180000);
+
+    it('sync versions cover online edits, moderation, category deletion, and tag changes without breaking old clients', async () => {
+      const category = await database.getRepository(CategoryEntity).save({
+        name: 'Version category',
+        normalizedName: 'version category',
+        slug: `version-${randomUUID()}`,
+        createdById: alice.id,
+      });
+      const tag = await database.getRepository(TagEntity).save({
+        name: 'Version tag',
+        normalizedName: 'version tag',
+        slug: `version-tag-${randomUUID()}`,
+        categoryId: category.id,
+        createdById: alice.id,
+      });
+      const blogs = database.getRepository(BlogEntity);
+      const blog = await blogs.save({
+        authorId: alice.id,
+        categoryId: category.id,
+        title: 'Versioned',
+        slug: `versioned-${randomUUID()}`,
+        content: 'Content',
+        status: BlogStatus.PUBLISHED,
+      });
+      const version = async () =>
+        (await blogs.findOneByOrFail({ id: blog.id })).version;
+      await database
+        .getRepository(BlogTagEntity)
+        .insert({ blogId: blog.id, tagId: tag.id });
+      const tagged = await version();
+      expect(tagged).toBeGreaterThan(blog.version);
+      await database.getRepository(BlogTagEntity).delete({ blogId: blog.id });
+      const untagged = await version();
+      expect(untagged).toBeGreaterThan(tagged);
+      const edit = (body: object, token = aliceToken) =>
+        request(app.getHttpServer())
+          .patch(`/api/v1/blogs/${blog.id}`)
+          .set('Authorization', `Bearer ${token}`)
+          .send(body);
+      const updated = (
+        await request(app.getHttpServer())
+          .patch(`/api/v1/blogs/${blog.id}`)
+          .set('Authorization', `Bearer ${aliceToken}`)
+          .field('title', 'Online')
+          .field('content', 'Online content')
+          .field('categoryId', category.id)
+          .field('tagIds', '[]')
+          .field('coverImageUrl', 'null')
+          .field('status', 'published')
+          .field('expectedVersion', String(untagged))
+          .expect(200)
+      ).body;
+      expect(updated.version).toBeGreaterThan(untagged);
+      await edit({ title: 'Stale', expectedVersion: untagged }).expect(409);
+      await edit(
+        { title: 'Forbidden', expectedVersion: untagged },
+        bobToken,
+      ).expect(403);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${blog.id}`)
+        .set('Authorization', `Bearer ${aliceToken}`)
+        .query({ version: untagged })
+        .expect(409);
+      await edit({ expectedVersion: updated.version }).expect(400);
+      await edit({ expectedVersion: 0, title: 'Invalid' }).expect(400);
+      const compatible = (await edit({ title: 'Old client' }).expect(200)).body;
+      expect(compatible.version).toBeGreaterThan(updated.version);
+      const moderated = (
+        await request(app.getHttpServer())
+          .patch(`/api/v1/admin/blogs/${blog.id}/status`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ status: 'draft' })
+          .expect(200)
+      ).body;
+      expect(moderated.version).toBeGreaterThan(compatible.version);
+      await request(app.getHttpServer())
+        .post('/api/v1/me/blog-sync')
+        .set('Authorization', `Bearer ${aliceToken}`)
+        .send({
+          operationId: randomUUID(),
+          entityId: blog.id,
+          type: 'UPDATE',
+          baseVersion: moderated.version,
+          input: { status: 'published' },
+        })
+        .expect(403);
+      await database.getRepository(CategoryEntity).delete(category.id);
+      expect(await version()).toBeGreaterThan(moderated.version);
+      expect(
+        (await blogs.findOneByOrFail({ id: blog.id })).categoryId,
+      ).toBeNull();
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${blog.id}`)
+        .set('Authorization', `Bearer ${aliceToken}`)
+        .expect(204);
+    }, 120000);
+
+    it('sync serializes concurrent image retries and rolls back post, audit, and receipt writes together', async () => {
+      const category = await database.getRepository(CategoryEntity).save({
+        name: 'Image sync category',
+        normalizedName: 'image sync category',
+        slug: `image-sync-${randomUUID()}`,
+        createdById: alice.id,
+      });
+      const images = app.get(BlogImageStore);
+      const uploaded: string[] = [];
+      const save = vi.spyOn(images, 'save').mockImplementation(async () => {
+        const url = `https://example.com/${randomUUID()}.png`;
+        uploaded.push(url);
+        return url;
+      });
+      const discard = vi.spyOn(images, 'discard').mockResolvedValue();
+      const input = {
+        operationId: randomUUID(),
+        entityId: randomUUID(),
+        type: 'CREATE',
+        input: {
+          title: 'Multipart mobile',
+          content: 'က'.repeat(100000),
+          categoryId: category.id,
+        },
+      };
+      const send = (dto: {
+        operationId: string;
+        entityId: string;
+        type: string;
+        input: object;
+        baseVersion?: number;
+      }) => {
+        const call = request(app.getHttpServer())
+          .post('/api/v1/me/blog-sync')
+          .set('Authorization', `Bearer ${aliceToken}`)
+          .field('operationId', dto.operationId)
+          .field('entityId', dto.entityId)
+          .field('type', dto.type)
+          .field('input', JSON.stringify(dto.input));
+        if (dto.baseVersion !== undefined)
+          call.field('baseVersion', String(dto.baseVersion));
+        return call.attach(
+          'image',
+          Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+          { filename: 'cover.png', contentType: 'image/png' },
+        );
+      };
+      const failReceipt = {
+        listenTo: () => PostSyncOperationEntity,
+        beforeInsert: () => {
+          throw new Error('Simulated receipt failure');
+        },
+      };
+      try {
+        const concurrent = await Promise.all([send(input), send(input)]);
+        expect(concurrent.map((response) => response.status)).toEqual([
+          200, 200,
+        ]);
+        expect(concurrent[0].body).toEqual(concurrent[1].body);
+        expect(save).toHaveBeenCalledTimes(1);
+        const created = concurrent[0].body.blog;
+        expect(created.content).toHaveLength(100000);
+        await send({ ...input, operationId: randomUUID() }).expect(409);
+        expect(save).toHaveBeenCalledTimes(1);
+        const update = {
+          ...input,
+          operationId: randomUUID(),
+          type: 'UPDATE',
+          baseVersion: created.version,
+          input: { title: 'Rolled back edit' },
+        };
+        const auditBefore = await database
+          .getRepository(BlogAuditLogEntity)
+          .countBy({ blogId: input.entityId });
+        database.subscribers.push(failReceipt);
+        await send(update).expect(500);
+        expect(
+          await database
+            .getRepository(BlogEntity)
+            .findOneByOrFail({ id: input.entityId }),
+        ).toMatchObject({
+          title: 'Multipart mobile',
+          version: created.version,
+          coverImageUrl: uploaded[0],
+        });
+        expect(
+          await database
+            .getRepository(BlogAuditLogEntity)
+            .countBy({ blogId: input.entityId }),
+        ).toBe(auditBefore);
+        expect(
+          await database
+            .getRepository(PostSyncOperationEntity)
+            .countBy({ userId: alice.id, operationId: update.operationId }),
+        ).toBe(0);
+        expect(discard).toHaveBeenCalledTimes(1);
+        expect(discard).toHaveBeenCalledWith(uploaded[1]);
+        database.subscribers.splice(
+          database.subscribers.indexOf(failReceipt),
+          1,
+        );
+        const changed = (await send(update).expect(200)).body;
+        expect(changed.blog.title).toBe('Rolled back edit');
+        expect(changed.blog.version).toBeGreaterThan(created.version);
+        expect((await send(update).expect(200)).body).toEqual(changed);
+        expect(save).toHaveBeenCalledTimes(3);
+        expect(
+          await database
+            .getRepository(BlogAuditLogEntity)
+            .countBy({ blogId: input.entityId }),
+        ).toBe(auditBefore + 1);
+      } finally {
+        const index = database.subscribers.indexOf(failReceipt);
+        if (index >= 0) database.subscribers.splice(index, 1);
+        save.mockRestore();
+        discard.mockRestore();
+      }
     }, 180000);
 
     it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {

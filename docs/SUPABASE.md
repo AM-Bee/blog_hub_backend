@@ -41,9 +41,9 @@ Schema synchronization is disabled for application startup. Run migrations befor
 starting the backend, both locally and in production.
 
 The initial migration creates seven core tables: users, categories, tags, blogs,
-blog_tags, refresh_sessions, and refresh_tokens. The following eight migrations
+blog_tags, refresh_sessions, and refresh_tokens. The following nine migrations
 add Google accounts, audit logs, notifications, chat tables/triggers, message
-deletion, comments/replies, reactions, and FAQ categories/answers. A fresh database ends with 16 application tables
+deletion, comments/replies, reactions, FAQ categories/answers, and post-sync receipts/versioning. A fresh database ends with 17 application tables
 and a `migrations` tracking table. UUID defaults use PostgreSQL's built-in `gen_random_uuid()`.
 
 The initial migration skips creation if all seven core tables already exist.
@@ -76,3 +76,5 @@ entity alignment and chat constraints, verifies reruns preserve records, and
 removes only that schema afterward. It never resets the application schema.
 
 FAQ tables and the independent `npm run seed:faq` command are documented in [FAQ.md](FAQ.md).
+
+The pending mobile synchronization migration and controlled rollout are described in [POST_SYNC.md](POST_SYNC.md). It must be applied before starting a backend version that queries `blogs.version`; this merge does not run it against the application schema.

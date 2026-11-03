@@ -12,6 +12,7 @@ import { AuthAccountEntity } from '../auth/entities/auth-account.entity.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { UserRole } from '../users/enums/user-role.enum.js';
 import { CategoryEntity } from '../categories/entities/category.entity.js';
+import { PostSyncOperationEntity } from '../blogs/entities/post-sync-operation.entity.js';
 import { BlogEntity } from '../blogs/entities/blog.entity.js';
 import { BlogAuditLogEntity } from '../blogs/entities/blog-audit-log.entity.js';
 import { BlogsModule } from '../blogs/blogs.module.js';
@@ -110,6 +111,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         schema,
         entities: [
           ...seedEntities,
+          PostSyncOperationEntity,
           AuthAccountEntity,
           BlogAuditLogEntity,
           NotificationEntity,
