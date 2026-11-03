@@ -14,6 +14,9 @@ import type { Socket } from 'socket.io-client';
 import { BlogEntity } from '../src/blogs/entities/blog.entity.js';
 import { BlogStatus } from '../src/blogs/enums/blog-status.enum.js';
 import { UserStatus } from '../src/users/enums/user-status.enum.js';
+import { seedFaqs, initialFaqs } from '../src/faq/seed-faqs.js';
+import { FaqEntity } from '../src/faq/entities/faq.entity.js';
+import { FaqCategoryEntity } from '../src/faq/entities/faq-category.entity.js';
 import { ReactionEntity } from '../src/reactions/entities/reaction.entity.js';
 import { BlogCommentEntity } from '../src/comments/entities/blog-comment.entity.js';
 import { AppModule } from '../src/app.module.js';
@@ -122,6 +125,8 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           NotificationEntity,
           BlogCommentEntity,
           ReactionEntity,
+          FaqEntity,
+          FaqCategoryEntity,
           ConversationEntity,
           MessageEntity,
         ],
@@ -639,6 +644,242 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       expect(await reactions.countBy({ blogId: blog.id })).toBe(1);
       await blogs.delete(blog.id);
       expect(await reactions.countBy({ blogId: blog.id })).toBe(0);
+    }, 180000);
+
+    it('manages FAQ content only as admin, filters inactive answers, preserves PATCH fields, paginates, and enforces category relationships', async () => {
+      const admin = (
+        method: 'get' | 'post' | 'patch' | 'delete',
+        path: string,
+      ) =>
+        request(app.getHttpServer())
+          [method](`/api/v1${path}`)
+          .set('Authorization', `Bearer ${adminToken}`);
+      await request(app.getHttpServer()).get('/api/v1/admin/faqs').expect(401);
+      for (const [method, path] of [
+        ['get', '/admin/faqs'],
+        ['post', '/admin/faqs'],
+        ['patch', `/admin/faqs/${randomUUID()}`],
+        ['delete', `/admin/faqs/${randomUUID()}`],
+        ['get', '/admin/faq-categories'],
+        ['post', '/admin/faq-categories'],
+        ['patch', `/admin/faq-categories/${randomUUID()}`],
+        ['delete', `/admin/faq-categories/${randomUUID()}`],
+      ] as const) {
+        await request(app.getHttpServer())
+          [method](`/api/v1${path}`)
+          .set('Authorization', `Bearer ${aliceToken}`)
+          .expect(403);
+      }
+      const category = (
+        await admin('post', '/admin/faq-categories')
+          .send({ name: 'FAQ test', slug: 'faq-test' })
+          .expect(201)
+      ).body;
+      const empty = (
+        await admin('post', '/admin/faq-categories')
+          .send({ name: 'Empty FAQ category', slug: 'empty-faq' })
+          .expect(201)
+      ).body;
+      await admin('post', '/admin/faq-categories')
+        .send({ name: 'FAQ test', slug: 'another-slug' })
+        .expect(409);
+      await admin('post', '/admin/faq-categories')
+        .send({ name: 'Another name', slug: 'faq-test' })
+        .expect(409);
+      const active = (
+        await admin('post', '/admin/faqs')
+          .send({
+            categoryId: category.id,
+            question: 'How do I create a blog?',
+            answer: 'Verified test answer',
+            alternativeQuestions: ['How do I write a post?'],
+            keywords: ['create blog'],
+            displayOrder: 5,
+          })
+          .expect(201)
+      ).body;
+      const hidden = (
+        await admin('post', '/admin/faqs')
+          .send({
+            categoryId: category.id,
+            question: 'What is the private unicorn feature?',
+            answer: 'Hidden test answer',
+            isActive: false,
+            keywords: ['unicorn'],
+            displayOrder: 42,
+          })
+          .expect(201)
+      ).body;
+      const ask = (question: string) =>
+        request(app.getHttpServer()).post('/api/v1/faq/ask').send({ question });
+      expect(
+        (await ask('How do I WRITE a post!!!').expect(200)).body,
+      ).toMatchObject({
+        found: true,
+        answer: 'Verified test answer',
+        matchedQuestion: active.question,
+        category: 'FAQ test',
+        suggestions: [],
+      });
+      await request(app.getHttpServer())
+        .get(`/api/v1/faq/${hidden.id}`)
+        .expect(404);
+      expect((await ask(hidden.question).expect(200)).body.found).toBe(false);
+      const publicFaq = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/faq/${active.id}`)
+          .expect(200)
+      ).body;
+      expect(Object.keys(publicFaq).sort()).toEqual([
+        'answer',
+        'category',
+        'id',
+        'question',
+      ]);
+      const suggestions = (
+        await request(app.getHttpServer())
+          .get('/api/v1/faq/suggestions')
+          .query({ categoryId: category.id })
+          .expect(200)
+      ).body;
+      expect(suggestions.map((item: { id: string }) => item.id)).toEqual([
+        active.id,
+      ]);
+      const publicCategories = (
+        await request(app.getHttpServer())
+          .get('/api/v1/faq/categories')
+          .expect(200)
+      ).body;
+      expect(publicCategories.map((item: { id: string }) => item.id)).toContain(
+        category.id,
+      );
+      expect(
+        publicCategories.map((item: { id: string }) => item.id),
+      ).not.toContain(empty.id);
+      expect(
+        (await admin('get', '/admin/faq-categories').expect(200)).body,
+      ).toHaveLength(2);
+      const page = (
+        await admin('get', '/admin/faqs')
+          .query({ categoryId: category.id, limit: 1, page: 2 })
+          .expect(200)
+      ).body;
+      expect(page).toMatchObject({ total: 2, totalPages: 2, page: 2 });
+      expect(page.items[0].id).toBe(hidden.id);
+      expect(
+        (await admin('get', `/admin/faqs/${hidden.id}`).expect(200)).body
+          .isActive,
+      ).toBe(false);
+      const edited = (
+        await admin('patch', `/admin/faqs/${hidden.id}`)
+          .send({ answer: 'Updated hidden answer' })
+          .expect(200)
+      ).body;
+      expect(edited).toMatchObject({
+        isActive: false,
+        keywords: ['unicorn'],
+        displayOrder: 42,
+      });
+      expect(
+        (
+          await admin('get', '/admin/faqs')
+            .query({ isActive: false })
+            .expect(200)
+        ).body.total,
+      ).toBe(1);
+      for (const body of [
+        {},
+        { isActive: null },
+        { keywords: null },
+        { answer: 'x', unexpected: true },
+      ])
+        await admin('patch', `/admin/faqs/${active.id}`).send(body).expect(400);
+      await admin('post', '/admin/faqs')
+        .send({
+          categoryId: randomUUID(),
+          question: 'Missing category',
+          answer: 'No',
+        })
+        .expect(409);
+      await admin('delete', `/admin/faq-categories/${category.id}`).expect(409);
+      await admin('patch', `/admin/faq-categories/${category.id}`)
+        .send({ name: 'Renamed FAQ category' })
+        .expect(200);
+      expect((await ask(active.question).expect(200)).body.category).toBe(
+        'Renamed FAQ category',
+      );
+      await admin('patch', `/admin/faqs/${active.id}`)
+        .send({ isActive: false })
+        .expect(200);
+      expect((await ask(active.question).expect(200)).body).toMatchObject({
+        found: false,
+        matchedQuestion: null,
+        category: null,
+        suggestions: [],
+      });
+      expect(
+        (
+          await request(app.getHttpServer())
+            .get('/api/v1/faq/categories')
+            .expect(200)
+        ).body,
+      ).toEqual([]);
+      await request(app.getHttpServer())
+        .post('/api/v1/faq/ask')
+        .send({ question: ' ' })
+        .expect(400);
+      await request(app.getHttpServer())
+        .get('/api/v1/faq/suggestions')
+        .query({ limit: 11 })
+        .expect(400);
+      await admin('get', '/admin/faqs')
+        .query({ isActive: 'unknown' })
+        .expect(400);
+      await admin('get', '/admin/faqs').query({ limit: 51 }).expect(400);
+      await request(app.getHttpServer())
+        .get('/api/v1/faq/not-a-uuid')
+        .expect(400);
+      await admin('delete', `/admin/faqs/${active.id}`).expect(204);
+      await admin('delete', `/admin/faqs/${hidden.id}`).expect(204);
+      await admin('delete', `/admin/faqs/${hidden.id}`).expect(404);
+      await admin('delete', `/admin/faq-categories/${category.id}`).expect(204);
+      await admin('delete', `/admin/faq-categories/${empty.id}`).expect(204);
+      await admin('get', `/admin/faqs/${randomUUID()}`).expect(404);
+    }, 180000);
+
+    it('seeds FAQ data idempotently without overwriting admin edits and rate limits public questions', async () => {
+      await database.transaction(seedFaqs);
+      const repository = database.getRepository(FaqEntity);
+      const first = await repository.findOneByOrFail({
+        question: initialFaqs[0].question,
+      });
+      await repository.update(first.id, {
+        answer: 'Admin customized answer',
+        isActive: false,
+      });
+      await database.transaction(seedFaqs);
+      expect(await repository.count()).toBe(initialFaqs.length);
+      expect(await database.getRepository(FaqCategoryEntity).count()).toBe(5);
+      expect(await repository.findOneByOrFail({ id: first.id })).toMatchObject({
+        answer: 'Admin customized answer',
+        isActive: false,
+      });
+      const ask = () =>
+        request(app.getHttpServer())
+          .post('/api/v1/faq/ask')
+          .send({ question: 'How do I log in?' });
+      // Earlier asks may share this window; it must reject by the 21st attempt.
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < 21; attempt++) {
+        const response = await ask();
+        statuses.push(response.status);
+        if (response.status === 429) break;
+        expect(response.body).toMatchObject({
+          found: true,
+          matchedQuestion: initialFaqs[1].question,
+        });
+      }
+      expect(statuses).toContain(429);
     }, 180000);
 
     it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {

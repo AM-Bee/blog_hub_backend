@@ -45,6 +45,8 @@ Comments and one-level replies, deployment steps, and Postman examples are docum
 
 Blog/comment/reply likes and dislikes, reply totals, and deployment instructions are documented in [docs/REACTIONS.md](docs/REACTIONS.md).
 
+The database-driven FAQ chatbot, admin management, seed command, and Postman steps are documented in [docs/FAQ.md](docs/FAQ.md).
+
 Create the first admin using `npm run seed:admin`; see [docs/ADMIN.md](docs/ADMIN.md) for local credentials and login instructions.
 
 Populate all tables with local demo data using `npm run seed`; see [docs/SEED.md](docs/SEED.md). The implementation is in `src/seed.ts`.

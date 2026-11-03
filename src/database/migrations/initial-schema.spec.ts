@@ -10,6 +10,8 @@ import { AuthAccountEntity } from '../../auth/entities/auth-account.entity.js';
 import { BlogAuditLogEntity } from '../../blogs/entities/blog-audit-log.entity.js';
 import { NotificationEntity } from '../../notifications/entities/notification.entity.js';
 import { ConversationEntity } from '../../chat/entities/conversation.entity.js';
+import { FaqEntity } from '../../faq/entities/faq.entity.js';
+import { FaqCategoryEntity } from '../../faq/entities/faq-category.entity.js';
 import { ReactionEntity } from '../../reactions/entities/reaction.entity.js';
 import { BlogCommentEntity } from '../../comments/entities/blog-comment.entity.js';
 import { MessageEntity } from '../../chat/entities/message.entity.js';
@@ -71,6 +73,8 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           MessageEntity,
           BlogCommentEntity,
           ReactionEntity,
+          FaqEntity,
+          FaqCategoryEntity,
         ],
         extra: { options: `-c search_path=${schema},public` },
       });
@@ -79,7 +83,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         await connection.query(`CREATE SCHEMA "${schema}"`);
         await source.initialize();
         const applied = await source.runMigrations();
-        expect(applied).toHaveLength(8);
+        expect(applied).toHaveLength(9);
         const tables: { tablename: string }[] = await source.query(
           'SELECT tablename FROM pg_tables WHERE schemaname = $1',
           [schema],

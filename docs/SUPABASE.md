@@ -41,9 +41,9 @@ Schema synchronization is disabled for application startup. Run migrations befor
 starting the backend, both locally and in production.
 
 The initial migration creates seven core tables: users, categories, tags, blogs,
-blog_tags, refresh_sessions, and refresh_tokens. The following seven migrations
+blog_tags, refresh_sessions, and refresh_tokens. The following eight migrations
 add Google accounts, audit logs, notifications, chat tables/triggers, message
-deletion, comments/replies, and reactions. A fresh database ends with 14 application tables
+deletion, comments/replies, reactions, and FAQ categories/answers. A fresh database ends with 16 application tables
 and a `migrations` tracking table. UUID defaults use PostgreSQL's built-in `gen_random_uuid()`.
 
 The initial migration skips creation if all seven core tables already exist.
@@ -74,3 +74,5 @@ BLOGHUB_RUN_DB_TESTS=1 npm test -- src/database/migrations/initial-schema.spec.t
 The database test uses a unique temporary schema, runs all migrations, checks
 entity alignment and chat constraints, verifies reruns preserve records, and
 removes only that schema afterward. It never resets the application schema.
+
+FAQ tables and the independent `npm run seed:faq` command are documented in [FAQ.md](FAQ.md).

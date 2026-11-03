@@ -11,6 +11,7 @@ import { BlogsModule } from './blogs/blogs.module.js';
 import { AdminUsersModule } from './admin-users/admin-users.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { CommentsModule } from './comments/comments.module.js';
+import { FaqModule } from './faq/faq.module.js';
 import { ChatModule } from './chat/chat.module.js';
 
 @Module({
@@ -26,6 +27,7 @@ import { ChatModule } from './chat/chat.module.js';
     NotificationsModule,
     ChatModule,
     CommentsModule,
+    FaqModule,
   ],
   controllers: [AppController],
   providers: [AppService],
