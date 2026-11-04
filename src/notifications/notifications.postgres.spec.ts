@@ -225,7 +225,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       expect((await list().expect(200)).body.total).toBe(2); // A new moderation action may notify again.
     });
 
-    it('preserves delete notifications after the post disappears and keeps the admin audit separate', async () => {
+    it('preserves trash notifications after the post disappears and keeps the admin audit separate', async () => {
       const post = await createPost();
       await remove(post.id).expect(204);
       expect(
@@ -375,11 +375,11 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       }
     });
 
-    it('rolls back the notification and audit record if deleting the live post fails afterward', async () => {
+    it('rolls back all side effects if moving a post to Trash fails', async () => {
       const post = await createPost();
       await database.query(`CREATE FUNCTION "${schema}".reject_delete() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN RAISE EXCEPTION 'delete unavailable'; END; $$`);
-      await database.query(`CREATE TRIGGER reject_delete BEFORE DELETE ON "${schema}".blogs
+      await database.query(`CREATE TRIGGER reject_delete BEFORE UPDATE OF deleted_at ON "${schema}".blogs
       FOR EACH ROW EXECUTE FUNCTION "${schema}".reject_delete()`);
       try {
         await remove(post.id).expect(500);

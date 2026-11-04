@@ -1408,6 +1408,537 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         .expect(401);
     }, 120000);
 
+    it('moves posts to Trash, restores their content as drafts, and permanently purges related data', async () => {
+      const api = (token: string) => ({ Authorization: `Bearer ${token}` });
+      const blogs = database.getRepository(BlogEntity);
+      const category = await database
+        .getRepository(CategoryEntity)
+        .save({
+          name: 'Trash test',
+          normalizedName: 'trash test',
+          slug: `trash-${randomUUID()}`,
+          createdById: alice.id,
+        });
+      const tag = await database
+        .getRepository(TagEntity)
+        .save({
+          name: 'Keep tag',
+          normalizedName: 'keep tag',
+          slug: `tag-${randomUUID()}`,
+          categoryId: category.id,
+          createdById: alice.id,
+        });
+      const post = await blogs.save({
+        authorId: alice.id,
+        categoryId: category.id,
+        title: `Trash lifecycle ${randomUUID()}`,
+        slug: `trash-${randomUUID()}`,
+        content: 'Keep all content',
+        status: BlogStatus.PUBLISHED,
+        publishedAt: new Date(),
+        coverImageUrl: 'https://images.example.com/shared.png',
+      });
+      await database
+        .getRepository(BlogTagEntity)
+        .save({ blogId: post.id, tagId: tag.id });
+      const comment = await database
+        .getRepository(BlogCommentEntity)
+        .save({ blogId: post.id, userId: bob.id, content: 'Keep comment' });
+      const reply = await database
+        .getRepository(BlogCommentEntity)
+        .save({
+          blogId: post.id,
+          userId: alice.id,
+          parentId: comment.id,
+          content: 'Keep reply',
+        });
+      await request(app.getHttpServer())
+        .post(`/api/v1/blogs/${post.id}/reactions`)
+        .set(api(aliceToken))
+        .send({ type: 'like' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post(`/api/v1/comments/${comment.id}/reactions`)
+        .set(api(bobToken))
+        .send({ type: 'like' })
+        .expect(200);
+      const current = await blogs.findOneByOrFail({ id: post.id });
+      await request(app.getHttpServer())
+        .get('/api/v1/me/blog-trash')
+        .expect(401);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/me/blog-trash/${post.id}`)
+        .set(api(aliceToken))
+        .expect(404);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${post.id}`)
+        .set(api(bobToken))
+        .expect(403);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${post.id}`)
+        .query({ version: current.version - 1 })
+        .set(api(aliceToken))
+        .expect(409);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${post.id}`)
+        .query({ version: current.version })
+        .set(api(aliceToken))
+        .expect(204);
+      const trashed = await blogs.findOneOrFail({
+        where: { id: post.id },
+        withDeleted: true,
+      });
+      expect(trashed.deletedAt).toBeInstanceOf(Date);
+      expect(trashed.deletedById).toBe(alice.id);
+      expect(trashed.version).toBeGreaterThan(current.version);
+      expect(await blogs.existsBy({ id: post.id })).toBe(false);
+      expect(
+        await database
+          .getRepository(BlogCommentEntity)
+          .countBy({ blogId: post.id }),
+      ).toBe(2);
+      expect(
+        await database.getRepository(ReactionEntity).count(),
+      ).toBeGreaterThanOrEqual(2);
+      for (const path of [
+        `blogs/${post.slug}`,
+        `me/blogs/${post.id}`,
+        `admin/blogs/${post.id}`,
+        `blogs/${post.id}/comments`,
+        `comments/${comment.id}/replies`,
+        `blogs/${post.id}/reactions`,
+        `comments/${reply.id}/reactions`,
+      ]) {
+        await request(app.getHttpServer())
+          .get(`/api/v1/${path}`)
+          .set(api(adminToken))
+          .expect(404);
+      }
+      await request(app.getHttpServer())
+        .patch(`/api/v1/blogs/${post.id}`)
+        .set(api(aliceToken))
+        .send({ content: 'No edits in Trash' })
+        .expect(404);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/blogs/${post.id}/status`)
+        .set(api(adminToken))
+        .send({ status: 'published' })
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/blogs/${post.id}/comments`)
+        .set(api(aliceToken))
+        .send({ content: 'No comments in Trash' })
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/comments/${comment.id}/replies`)
+        .set(api(bobToken))
+        .send({ content: 'No replies in Trash' })
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/blogs/${post.id}/reactions`)
+        .set(api(bobToken))
+        .send({ type: 'dislike' })
+        .expect(404);
+      const search = await request(app.getHttpServer())
+        .get('/api/v1/blogs')
+        .query({ q: post.title })
+        .expect(200);
+      expect(search.body.items).toEqual([]);
+      const page = await request(app.getHttpServer())
+        .get('/api/v1/me/blog-trash')
+        .set(api(aliceToken))
+        .query({ limit: 1 })
+        .expect(200);
+      expect(page.body.items[0]).toMatchObject({
+        id: post.id,
+        deletedById: alice.id,
+        canRestore: true,
+        canPermanentlyDelete: true,
+        excerpt: post.content,
+      });
+      expect(page.body.items[0]).not.toHaveProperty('content');
+      await request(app.getHttpServer())
+        .get('/api/v1/me/blog-trash')
+        .set(api(aliceToken))
+        .query({ limit: 51 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .get('/api/v1/me/blog-trash/not-a-uuid')
+        .set(api(aliceToken))
+        .expect(400);
+      await request(app.getHttpServer())
+        .get(`/api/v1/me/blog-trash/${post.id}`)
+        .set(api(bobToken))
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/me/blog-trash/${post.id}/restore`)
+        .set(api(bobToken))
+        .expect(404);
+      const restored = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/me/blog-trash/${post.id}/restore`)
+          .set(api(aliceToken))
+          .expect(200)
+      ).body;
+      expect(restored).toMatchObject({
+        id: post.id,
+        slug: post.slug,
+        content: post.content,
+        status: 'draft',
+        publishedAt: null,
+        coverImageUrl: post.coverImageUrl,
+        tags: [{ id: tag.id }],
+      });
+      expect(restored.version).toBeGreaterThan(trashed.version);
+      await request(app.getHttpServer())
+        .get(`/api/v1/me/blog-trash/${post.id}`)
+        .set(api(aliceToken))
+        .expect(404);
+      await request(app.getHttpServer())
+        .get(`/api/v1/blogs/${post.slug}`)
+        .expect(404);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/blogs/${post.id}`)
+        .set(api(aliceToken))
+        .send({ status: 'published' })
+        .expect(200);
+      const comments = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/blogs/${post.id}/comments`)
+          .expect(200)
+      ).body;
+      expect(comments.items[0]).toMatchObject({
+        id: comment.id,
+        replyCount: 1,
+        likeCount: 1,
+      });
+      expect(
+        (
+          await request(app.getHttpServer())
+            .get(`/api/v1/blogs/${post.id}/reactions`)
+            .expect(200)
+        ).body.likeCount,
+      ).toBe(1);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${post.id}`)
+        .set(api(aliceToken))
+        .expect(204);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/me/blog-trash/${post.id}`)
+        .set(api(bobToken))
+        .expect(404);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/me/blog-trash/${post.id}`)
+        .set(api(aliceToken))
+        .expect(204);
+      expect(
+        await blogs.findOne({ where: { id: post.id }, withDeleted: true }),
+      ).toBeNull();
+      expect(
+        await database
+          .getRepository(BlogCommentEntity)
+          .countBy({ blogId: post.id }),
+      ).toBe(0);
+      expect(
+        await database
+          .getRepository(BlogTagEntity)
+          .countBy({ blogId: post.id }),
+      ).toBe(0);
+      expect(
+        await database
+          .getRepository(ReactionEntity)
+          .countBy({ blogId: post.id }),
+      ).toBe(0);
+      expect(
+        await database
+          .getRepository(ReactionEntity)
+          .countBy({ commentId: comment.id }),
+      ).toBe(0);
+      const actions = (
+        await database
+          .getRepository(BlogAuditLogEntity)
+          .findBy({ blogId: post.id })
+      ).map((log) => log.action);
+      expect(actions.filter((action) => action === 'trashed')).toHaveLength(2);
+      expect(actions).toEqual(
+        expect.arrayContaining(['restored', 'permanently_deleted']),
+      );
+    }, 180000);
+
+    it('protects admin Trash actions and prevents sync from bypassing moderation', async () => {
+      const api = (token: string) => ({ Authorization: `Bearer ${token}` });
+      const users = database.getRepository(UserEntity);
+      const blogs = database.getRepository(BlogEntity);
+      const moderator = await users.save({
+        displayName: 'Trash moderator',
+        email: 'trash-moderator@acceptance.example',
+        role: UserRole.ADMIN,
+        permissions: ['blogs.moderate', 'blogs.delete'],
+        passwordHash: await bcrypt.hash('Password123!', 4),
+      });
+      const token = (await login(moderator.email).expect(200)).body.accessToken;
+      const post = await blogs.save({
+        authorId: alice.id,
+        title: 'Admin trash',
+        slug: `admin-trash-${randomUUID()}`,
+        content: 'Moderated content',
+        status: BlogStatus.PUBLISHED,
+      });
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/blogs/${post.id}/status`)
+        .set(api(token))
+        .send({ status: 'draft' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${post.id}`)
+        .set(api(token))
+        .expect(204);
+      const marker = await blogs.findOneOrFail({
+        where: { id: post.id },
+        withDeleted: true,
+      });
+      const view = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/me/blog-trash/${post.id}`)
+          .set(api(aliceToken))
+          .expect(200)
+      ).body;
+      expect(view.canRestore).toBe(false);
+      await request(app.getHttpServer())
+        .post(`/api/v1/me/blog-trash/${post.id}/restore`)
+        .set(api(aliceToken))
+        .expect(403);
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/blog-trash')
+        .set(api(aliceToken))
+        .expect(403);
+      const adminView = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/admin/blog-trash/${post.id}`)
+          .set(api(token))
+          .expect(200)
+      ).body;
+      expect(adminView).toMatchObject({
+        canRestore: false,
+        canPermanentlyDelete: false,
+      });
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/blog-trash/${post.id}/restore`)
+        .set(api(token))
+        .expect(403);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/admin/blog-trash/${post.id}`)
+        .set(api(token))
+        .expect(403);
+      const sync = (body: object) =>
+        request(app.getHttpServer())
+          .post('/api/v1/me/blog-sync')
+          .set(api(aliceToken))
+          .send(body);
+      const operation = {
+        entityId: post.id,
+        operationId: randomUUID(),
+        type: 'UPDATE',
+        baseVersion: marker.version,
+        input: { title: 'Cannot edit trash' },
+      };
+      await sync(operation).expect(404);
+      await sync({
+        ...operation,
+        operationId: randomUUID(),
+        type: 'CREATE',
+      }).expect(409);
+      await sync({
+        operationId: randomUUID(),
+        entityId: post.id,
+        type: 'DELETE',
+        baseVersion: 1,
+      }).expect(200);
+      expect(
+        (
+          await blogs.findOneOrFail({
+            where: { id: post.id },
+            withDeleted: true,
+          })
+        ).deletedById,
+      ).toBe(moderator.id);
+      async function snapshotIds() {
+        const ids: string[] = [];
+        let after: string | null = null;
+        do {
+          const response: HttpResponse = await request(app.getHttpServer())
+            .get('/api/v1/me/blog-sync')
+            .query(after ? { after } : {})
+            .set(api(aliceToken))
+            .expect(200);
+          ids.push(
+            ...response.body.items.map((item: { id: string }) => item.id),
+          );
+          after = response.body.nextCursor;
+        } while (after);
+        return ids;
+      }
+      expect(await snapshotIds()).not.toContain(post.id);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${moderator.id}/permissions`)
+        .set(api(adminToken))
+        .send({
+          permissions: ['blogs.moderate', 'blogs.restore', 'blogs.purge'],
+        })
+        .expect(200);
+      const restored = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/admin/blog-trash/${post.id}/restore`)
+          .set(api(token))
+          .expect(200)
+      ).body;
+      expect(restored).toMatchObject({
+        status: 'draft',
+        publicationBlocked: true,
+      });
+      expect(await snapshotIds()).toContain(post.id);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/blogs/${post.id}`)
+        .set(api(aliceToken))
+        .send({ status: 'published' })
+        .expect(403);
+      await sync({ ...operation, operationId: randomUUID() }).expect(409);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${post.id}`)
+        .set(api(adminToken))
+        .expect(204);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/admin/blog-trash/${post.id}`)
+        .set(api(token))
+        .expect(204);
+      const notifications = await database
+        .getRepository(NotificationEntity)
+        .findBy({ blogId: post.id, userId: alice.id });
+      expect(notifications.map((notification) => notification.type)).toEqual(
+        expect.arrayContaining([
+          'post_deleted',
+          'post_restored',
+          'post_permanently_deleted',
+        ]),
+      );
+      const ownPurge = await blogs.save({
+        authorId: alice.id,
+        title: 'Owner may purge',
+        slug: `purge-${randomUUID()}`,
+        content: 'Own content',
+      });
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${ownPurge.id}`)
+        .set(api(adminToken))
+        .expect(204);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/me/blog-trash/${ownPurge.id}`)
+        .set(api(aliceToken))
+        .expect(204);
+    }, 180000);
+
+    it('rolls back Trash, restoration, and permanent deletion with their audit and notifications', async () => {
+      const api = { Authorization: `Bearer ${adminToken}` };
+      const blogs = database.getRepository(BlogEntity);
+      const post = await blogs.save({
+        authorId: alice.id,
+        title: 'Atomic trash',
+        slug: `atomic-trash-${randomUUID()}`,
+        content: 'Keep on failure',
+      });
+      let rejectNotification = true;
+      const subscriber = {
+        beforeInsert(event: { metadata: { target: unknown } }) {
+          if (
+            rejectNotification &&
+            event.metadata.target === NotificationEntity
+          )
+            throw new Error('Notification unavailable');
+        },
+      };
+      database.subscribers.push(subscriber);
+      try {
+        await request(app.getHttpServer())
+          .delete(`/api/v1/blogs/${post.id}`)
+          .set(api)
+          .expect(500);
+        expect(
+          (await blogs.findOneByOrFail({ id: post.id })).deletedAt,
+        ).toBeNull();
+        expect(
+          await database
+            .getRepository(BlogAuditLogEntity)
+            .countBy({ blogId: post.id }),
+        ).toBe(0);
+        rejectNotification = false;
+        await request(app.getHttpServer())
+          .delete(`/api/v1/blogs/${post.id}`)
+          .set(api)
+          .expect(204);
+        rejectNotification = true;
+        await request(app.getHttpServer())
+          .post(`/api/v1/admin/blog-trash/${post.id}/restore`)
+          .set(api)
+          .expect(500);
+        await request(app.getHttpServer())
+          .delete(`/api/v1/admin/blog-trash/${post.id}`)
+          .set(api)
+          .expect(500);
+        expect(
+          (
+            await blogs.findOneOrFail({
+              where: { id: post.id },
+              withDeleted: true,
+            })
+          ).deletedAt,
+        ).toBeInstanceOf(Date);
+        expect(
+          await database
+            .getRepository(BlogAuditLogEntity)
+            .countBy({ blogId: post.id }),
+        ).toBe(1);
+        rejectNotification = false;
+        await database.query(
+          `CREATE FUNCTION "${schema}".reject_trash_purge() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Purge failed'; END; $$`,
+        );
+        await database.query(
+          `CREATE TRIGGER reject_trash_purge BEFORE DELETE ON "${schema}".blogs FOR EACH ROW EXECUTE FUNCTION "${schema}".reject_trash_purge()`,
+        );
+        try {
+          await request(app.getHttpServer())
+            .delete(`/api/v1/admin/blog-trash/${post.id}`)
+            .set(api)
+            .expect(500);
+          expect(
+            await database
+              .getRepository(BlogAuditLogEntity)
+              .countBy({ blogId: post.id }),
+          ).toBe(1);
+          expect(
+            await database
+              .getRepository(NotificationEntity)
+              .countBy({ blogId: post.id }),
+          ).toBe(1);
+        } finally {
+          await database.query(
+            `DROP TRIGGER reject_trash_purge ON "${schema}".blogs`,
+          );
+          await database.query(
+            `DROP FUNCTION "${schema}".reject_trash_purge()`,
+          );
+        }
+        await request(app.getHttpServer())
+          .delete(`/api/v1/admin/blog-trash/${post.id}`)
+          .set(api)
+          .expect(204);
+      } finally {
+        database.subscribers.splice(
+          database.subscribers.indexOf(subscriber),
+          1,
+        );
+      }
+    }, 120000);
+
     it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {
       await database.getRepository(BlogEntity).save({
         authorId: bob.id,

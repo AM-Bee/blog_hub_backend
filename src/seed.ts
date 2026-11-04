@@ -232,7 +232,9 @@ export async function seedData(dataSource: DataSource, password: string) {
 
     for (const [index, sample] of posts.entries()) {
       const id = seedId(`blog:${sample.title}`);
-      if (await manager.existsBy(BlogEntity, { id })) {
+      if (
+        await manager.exists(BlogEntity, { where: { id }, withDeleted: true })
+      ) {
         continue;
       }
       const group = taxonomy[sample.category];
@@ -298,7 +300,9 @@ async function uniqueSlug(
   id: string,
 ): Promise<string> {
   const base = taxonomySlug(name);
-  return (await manager.getRepository(entity).existsBy({ slug: base }))
+  return (await manager
+    .getRepository(entity)
+    .exists({ where: { slug: base }, withDeleted: true }))
     ? `${base}-${id}`
     : base;
 }

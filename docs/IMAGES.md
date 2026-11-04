@@ -1,5 +1,7 @@
 # Blog image uploads
 
+Post deletion now moves the post to Trash; permanent deletion requires a Trash endpoint. See [BLOG_TRASH.md](BLOG_TRASH.md) for restoration, permissions, preserved relationships, and storage limits.
+
 Create or update a blog with one optional cover image using Multer and `multipart/form-data`:
 
 ```text

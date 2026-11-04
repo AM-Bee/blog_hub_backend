@@ -266,7 +266,8 @@ export class BlogsController {
   @Roles(UserRole.AUTHOR, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Delete your blog; deleting another blog requires blogs.delete',
+    summary:
+      'Move your post to Trash; trashing another post requires blogs.delete',
   })
   @ApiNoContentResponse()
   remove(

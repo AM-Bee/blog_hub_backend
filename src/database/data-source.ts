@@ -1,4 +1,5 @@
 import { AddAdminPermissions1793750400000 } from './migrations/1793750400000-AddAdminPermissions.js';
+import { AddBlogTrash1793836800000 } from './migrations/1793836800000-AddBlogTrash.js';
 import 'reflect-metadata';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
@@ -44,5 +45,6 @@ export default new DataSource({
     AddFaqs1793664000000,
     AddPostSync1793664100000,
     AddAdminPermissions1793750400000,
+    AddBlogTrash1793836800000,
   ],
 });

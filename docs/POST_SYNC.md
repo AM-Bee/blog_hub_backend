@@ -1,5 +1,7 @@
 # Post synchronization
 
+Deletion now moves a post to Trash. Full snapshots exclude Trash; restored drafts reappear with a newer version. See [BLOG_TRASH.md](BLOG_TRASH.md) for retries, restoration, and permanent deletion.
+
 Apply `AddPostSync1793664100000` with `npm run migration:run` using the intended database configuration before serving the updated backend. No production migration has been performed by the coding task.
 
 ## Versioning

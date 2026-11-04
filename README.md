@@ -141,6 +141,8 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 
 Forgot-password email setup and EchoAPI testing: [docs/FORGOT_PASSWORD.md](docs/FORGOT_PASSWORD.md).
 
+Blog Trash, restoration, permanent deletion, and rollout: [docs/BLOG_TRASH.md](docs/BLOG_TRASH.md).
+
 Main admin setup, explicit permission grants, and rollout: [docs/ADMIN_PERMISSIONS.md](docs/ADMIN_PERMISSIONS.md).
 
 Admin user listing, details, and account status management: [docs/USER_MANAGEMENT.md](docs/USER_MANAGEMENT.md).

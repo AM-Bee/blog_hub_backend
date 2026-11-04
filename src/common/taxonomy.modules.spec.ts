@@ -147,6 +147,16 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
           : ['normalizedName', 'slug'],
       );
     }
+    expect(
+      dataSource.getMetadata(BlogEntity).deleteDateColumn?.propertyName,
+    ).toBe('deletedAt');
+    const normalPosts = dataSource
+      .getRepository(BlogEntity)
+      .createQueryBuilder('blog');
+    expect(normalPosts.getSql()).toContain('"blog"."deleted_at" IS NULL');
+    expect(normalPosts.withDeleted().getSql()).not.toContain(
+      '"blog"."deleted_at" IS NULL',
+    );
     const tagMetadata = dataSource.getMetadata(TagEntity);
     expect(
       tagMetadata.foreignKeys.find((key) => key.name === 'FK_tags_category')
@@ -196,6 +206,21 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       expect(document.paths['/api/v1/auth/me'].get?.security).toEqual([
         { bearer: [] },
       ]);
+      for (const prefix of ['me', 'admin']) {
+        expect(
+          document.paths[`/api/v1/${prefix}/blog-trash`].get?.security,
+        ).toEqual([{ bearer: [] }]);
+        expect(
+          document.paths[`/api/v1/${prefix}/blog-trash/{id}`].get?.security,
+        ).toEqual([{ bearer: [] }]);
+        expect(
+          document.paths[`/api/v1/${prefix}/blog-trash/{id}`].delete?.security,
+        ).toEqual([{ bearer: [] }]);
+        expect(
+          document.paths[`/api/v1/${prefix}/blog-trash/{id}/restore`].post
+            ?.security,
+        ).toEqual([{ bearer: [] }]);
+      }
       expect(document.paths['/api/v1/admin/users'].get?.security).toEqual([
         { bearer: [] },
       ]);

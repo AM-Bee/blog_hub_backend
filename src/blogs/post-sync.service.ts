@@ -94,6 +94,7 @@ export class PostSyncService {
         );
         const current = await manager.findOne(BlogEntity, {
           where: { id: dto.entityId },
+          withDeleted: true,
           lock: { mode: 'pessimistic_write' },
         });
         if (current && current.authorId !== user.id) {
@@ -102,11 +103,12 @@ export class PostSyncService {
         if (dto.type === 'CREATE' && current) {
           throw new ConflictException('A post with this ID already exists');
         }
-        if (dto.type === 'UPDATE' && !current) {
+        if (dto.type === 'UPDATE' && (!current || current.deletedAt)) {
           throw new NotFoundException('This post was deleted on the server');
         }
         if (
           current &&
+          !current.deletedAt &&
           dto.type !== 'CREATE' &&
           current.version !== dto.baseVersion
         ) {
@@ -133,7 +135,8 @@ export class PostSyncService {
             }),
           };
         } else {
-          if (current) await this.posts.remove(dto.entityId, user, manager);
+          if (current && !current.deletedAt)
+            await this.posts.remove(dto.entityId, user, manager);
           response = { deleted: true, id: dto.entityId };
         }
         await manager.insert(PostSyncOperationEntity, {

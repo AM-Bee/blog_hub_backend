@@ -48,3 +48,15 @@ export interface BlogPage {
   total: number;
   totalPages: number;
 }
+
+export interface BlogTrashMetadata {
+  deletedAt: Date;
+  deletedById: string | null;
+  canRestore: boolean;
+  canPermanentlyDelete: boolean;
+}
+export interface BlogTrash extends Blog, BlogTrashMetadata {}
+export interface BlogTrashSummary extends BlogSummary, BlogTrashMetadata {}
+export interface BlogTrashPage extends Omit<BlogPage, 'items'> {
+  items: BlogTrashSummary[];
+}

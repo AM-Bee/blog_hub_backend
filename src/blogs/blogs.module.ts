@@ -1,3 +1,4 @@
+import { BlogTrashController } from './blog-trash.controller.js';
 import { BlogsRepository } from './blogs.repository.js';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -28,7 +29,7 @@ import { PostSyncService } from './post-sync.service.js';
       TagEntity,
     ]),
   ],
-  controllers: [BlogsController, PostSyncController],
+  controllers: [BlogsController, PostSyncController, BlogTrashController],
   providers: [BlogsRepository, BlogsService, BlogImageStore, PostSyncService],
   exports: [BlogsService],
 })

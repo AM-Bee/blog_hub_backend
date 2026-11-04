@@ -3,6 +3,8 @@ import { UserRole } from './enums/user-role.enum.js';
 export enum Permission {
   BLOGS_MODERATE = 'blogs.moderate',
   BLOGS_DELETE = 'blogs.delete',
+  BLOGS_RESTORE = 'blogs.restore',
+  BLOGS_PURGE = 'blogs.purge',
   TAXONOMY_MANAGE = 'taxonomy.manage',
   TAXONOMY_DELETE = 'taxonomy.delete',
   COMMENTS_DELETE = 'comments.delete',

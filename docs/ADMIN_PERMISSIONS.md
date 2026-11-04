@@ -13,7 +13,9 @@ Existing admins receive **no administrative permissions** from the migration. Th
 | Permission | Allows |
 | --- | --- |
 | `blogs.moderate` | List/read any blog through admin routes; publish/unpublish/block publishing |
-| `blogs.delete` | Delete other authors' blogs |
+| `blogs.delete` | Move other authors' blogs to Trash |
+| `blogs.restore` | Restore trashed posts through admin routes |
+| `blogs.purge` | Permanently delete trashed posts through admin routes |
 | `taxonomy.manage` | Edit other users' categories/tags |
 | `taxonomy.delete` | Delete categories/tags |
 | `comments.delete` | Delete other users' comments/replies |
@@ -22,7 +24,7 @@ Existing admins receive **no administrative permissions** from the migration. Th
 | `users.manage` | List/read users; enable/disable authors |
 | `users.grant_access` | Main admin only: promote authors and replace regular admin permissions |
 
-Delete grants are independent of manage grants. Authors and admins can still edit/delete their own blogs and comments. Taxonomy creation and editing one's own entries remain available as before; deleting taxonomy always requires its delete grant. FAQ deactivation and unpublishing are moderation, not permanent deletion. Only the main admin can enable/disable regular admins. The main admin cannot be demoted, disabled, or have permissions changed through these APIs. There is no new demotion API.
+Restore and permanent deletion are documented in [BLOG_TRASH.md](BLOG_TRASH.md). `blogs.delete` only moves posts to Trash. Delete/restore/purge grants are independent of manage grants. Authors and admins can still edit/delete their own blogs and comments. Taxonomy creation and editing one's own entries remain available as before; deleting taxonomy always requires its delete grant. FAQ deactivation and unpublishing are moderation, not permanent deletion. Only the main admin can enable/disable regular admins. The main admin cannot be demoted, disabled, or have permissions changed through these APIs. There is no new demotion API.
 
 ## API
 

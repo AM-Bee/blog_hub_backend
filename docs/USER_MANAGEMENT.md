@@ -47,7 +47,7 @@ Filters combine with AND. `%`, `_`, and backslashes in search are treated litera
 
 `GET /admin/users/:id`
 
-Replace `:id` with an actual user UUID from the list. Returns the same profile fields plus `blogCount`, counting both drafts and published blogs. Admins with `users.manage` may view author, admin, and main admin accounts. No password hashes, reset data, or session tokens are returned.
+Replace `:id` with an actual user UUID from the list. Returns the same profile fields plus `blogCount`, counting active drafts and published blogs, excluding Trash. Admins with `users.manage` may view author, admin, and main admin accounts. No password hashes, reset data, or session tokens are returned.
 
 ## Enable or disable an author
 

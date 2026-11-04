@@ -4,6 +4,7 @@ import { CreateBlogDto } from './dto/create-blog.dto.js';
 import { UpdateBlogDto } from './dto/update-blog.dto.js';
 import { UpdateBlogStatusDto } from './dto/update-blog-status.dto.js';
 import {
+  BlogPaginationQueryDto,
   ListBlogsQueryDto,
   ManageBlogsQueryDto,
 } from './dto/list-blogs-query.dto.js';
@@ -15,6 +16,22 @@ export class BlogsService {
   constructor(
     @Inject(BlogsRepository) private readonly repository: BlogsRepository,
   ) {}
+
+  findTrash(query: BlogPaginationQueryDto, user: AuthUser, admin = false) {
+    return this.repository.findTrash(query, user, admin);
+  }
+
+  findTrashedOne(id: string, user: AuthUser, admin = false) {
+    return this.repository.findTrashedOne(id, user, admin);
+  }
+
+  restore(id: string, user: AuthUser, admin = false) {
+    return this.repository.restore(id, user, admin);
+  }
+
+  purge(id: string, user: AuthUser, admin = false) {
+    return this.repository.purge(id, user, admin);
+  }
 
   create(dto: CreateBlogDto, user: AuthUser, image?: Express.Multer.File) {
     return this.repository.create(dto, user, image);

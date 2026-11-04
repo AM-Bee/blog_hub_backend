@@ -85,7 +85,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         await connection.query(`CREATE SCHEMA "${schema}"`);
         await source.initialize();
         const applied = await source.runMigrations();
-        expect(applied).toHaveLength(11);
+        expect(applied).toHaveLength(12);
         const tables: { tablename: string }[] = await source.query(
           'SELECT tablename FROM pg_tables WHERE schemaname = $1',
           [schema],

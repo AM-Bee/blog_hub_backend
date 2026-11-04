@@ -28,6 +28,9 @@ import type {
   BlogPage,
   Blog,
   BlogSummary,
+  BlogTrash,
+  BlogTrashSummary,
+  BlogTrashPage,
 } from './interfaces/blog.interface.js';
 import type { AuthUser } from '../auth/interfaces/auth.interface.js';
 import { UserRole } from '../users/enums/user-role.enum.js';
@@ -399,19 +402,185 @@ export class BlogsRepository {
         );
       }
       const before = await this.auditSnapshot(manager, id);
-      await this.recordAudit(manager, user, before, null);
+      await manager.update(
+        BlogEntity,
+        { id },
+        { deletedAt: new Date(), deletedById: user.id },
+      );
+      await this.recordAudit(
+        manager,
+        user,
+        before,
+        null,
+        BlogAuditAction.TRASHED,
+      );
       if (blog.authorId !== user.id) {
         await manager.insert(NotificationEntity, {
           userId: blog.authorId,
           type: NotificationType.POST_DELETED,
           blogId: blog.id,
           blogTitle: blog.title,
-          message: `An admin deleted your post "${blog.title}".`,
+          message: `An admin moved your post "${blog.title}" to Trash. Only an admin can restore it.`,
           readAt: null,
         });
       }
-      await manager.delete(BlogEntity, id);
     });
+  }
+
+  async findTrash(
+    input: BlogPaginationQueryDto,
+    user: AuthUser,
+    admin = false,
+  ): Promise<BlogTrashPage> {
+    this.assertTrashPermission(user, admin, Permission.BLOGS_MODERATE);
+    const query = await validateDto(input, BlogPaginationQueryDto);
+    const listing = this.viewQuery()
+      .withDeleted()
+      .where('blog.deletedAt IS NOT NULL');
+    if (!admin)
+      listing.andWhere('blog.authorId = :authorId', { authorId: user.id });
+    const [rows, total] = await listing
+      .orderBy('blog.deletedAt', 'DESC')
+      .addOrderBy('blog.id', 'DESC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    const items: BlogTrashSummary[] = rows.map((row) => {
+      const { content, ...post } = this.trashResponse(row, user, admin);
+      return { ...post, excerpt: [...content].slice(0, 200).join('') };
+    });
+    return {
+      items,
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
+  }
+
+  async findTrashedOne(
+    id: string,
+    user: AuthUser,
+    admin = false,
+  ): Promise<BlogTrash> {
+    this.assertTrashPermission(user, admin, Permission.BLOGS_MODERATE);
+    const blog = await this.viewQuery()
+      .withDeleted()
+      .where('blog.id = :id', { id })
+      .getOne();
+    this.assertTrashed(blog, user, admin);
+    return this.trashResponse(blog, user, admin);
+  }
+
+  async restore(id: string, user: AuthUser, admin = false): Promise<Blog> {
+    this.assertTrashPermission(user, admin, Permission.BLOGS_RESTORE);
+    await this.dataSource.transaction(async (manager) => {
+      const blog = await manager.findOne(BlogEntity, {
+        where: { id },
+        withDeleted: true,
+        lock: { mode: 'pessimistic_write' },
+      });
+      this.assertTrashed(blog, user, admin);
+      if (!admin && blog.deletedById !== user.id)
+        throw new ForbiddenException(
+          'Only an admin can restore a post trashed by an admin',
+        );
+      const before = await this.auditSnapshot(manager, id);
+      await manager.update(
+        BlogEntity,
+        { id },
+        {
+          deletedAt: null,
+          deletedById: null,
+          status: BlogStatus.DRAFT,
+          publishedAt: null,
+        },
+      );
+      await this.recordAudit(
+        manager,
+        user,
+        before,
+        await this.auditSnapshot(manager, id),
+        BlogAuditAction.RESTORED,
+      );
+      if (blog.authorId !== user.id)
+        await manager.insert(NotificationEntity, {
+          userId: blog.authorId,
+          type: NotificationType.POST_RESTORED,
+          blogId: id,
+          blogTitle: blog.title,
+          message: `An admin restored your post "${blog.title}" as a draft.`,
+          readAt: null,
+        });
+    });
+    return this.findDetail(id);
+  }
+
+  async purge(id: string, user: AuthUser, admin = false): Promise<void> {
+    this.assertTrashPermission(user, admin, Permission.BLOGS_PURGE);
+    await this.dataSource.transaction(async (manager) => {
+      const blog = await manager.findOne(BlogEntity, {
+        where: { id },
+        withDeleted: true,
+        lock: { mode: 'pessimistic_write' },
+      });
+      this.assertTrashed(blog, user, admin);
+      const before = await this.auditSnapshot(manager, id);
+      await this.recordAudit(
+        manager,
+        user,
+        before,
+        null,
+        BlogAuditAction.PERMANENTLY_DELETED,
+      );
+      if (blog.authorId !== user.id)
+        await manager.insert(NotificationEntity, {
+          userId: blog.authorId,
+          type: NotificationType.POST_PERMANENTLY_DELETED,
+          blogId: id,
+          blogTitle: blog.title,
+          message: `An admin permanently deleted your post "${blog.title}" from Trash.`,
+          readAt: null,
+        });
+      await manager.delete(BlogEntity, id);
+      // shortcut: cover URLs may be shared by other posts; retain storage objects until reference-aware cleanup exists.
+    });
+  }
+
+  private assertTrashPermission(
+    user: AuthUser,
+    admin: boolean,
+    permission: Permission,
+  ): void {
+    this.assertWriter(user);
+    if (admin && !hasPermission(user, permission))
+      throw new ForbiddenException('Missing permission: ' + permission);
+  }
+
+  private assertTrashed(
+    blog: BlogEntity | null,
+    user: AuthUser,
+    admin: boolean,
+  ): asserts blog is BlogEntity {
+    if (!blog?.deletedAt || (!admin && blog.authorId !== user.id))
+      throw new NotFoundException('Trashed post not found');
+  }
+
+  private trashResponse(
+    blog: BlogEntity,
+    user: AuthUser,
+    admin: boolean,
+  ): BlogTrash {
+    return {
+      ...this.toResponse(blog),
+      deletedAt: blog.deletedAt!,
+      deletedById: blog.deletedById,
+      canRestore: admin
+        ? hasPermission(user, Permission.BLOGS_RESTORE)
+        : blog.deletedById === user.id,
+      canPermanentlyDelete:
+        !admin || hasPermission(user, Permission.BLOGS_PURGE),
+    };
   }
 
   private async checkCategoryAndTags(
@@ -482,6 +651,7 @@ export class BlogsRepository {
   ): Promise<BlogAuditSnapshot> {
     // Read through the transaction's manager, after locking the post row.
     const blog = await this.viewQuery(manager)
+      .withDeleted()
       .where('blog.id = :id', { id })
       .getOne();
     if (!blog) {
@@ -503,6 +673,7 @@ export class BlogsRepository {
     user: AuthUser,
     before: BlogAuditSnapshot,
     after: BlogAuditSnapshot | null,
+    lifecycleAction?: BlogAuditAction,
   ): Promise<void> {
     const changes: BlogAuditChanges = {};
     let action = BlogAuditAction.DELETED;
@@ -532,7 +703,7 @@ export class BlogsRepository {
           changes[field] = { old: before[field], new: after[field] };
         }
       }
-      if (!Object.keys(changes).length) {
+      if (!lifecycleAction && !Object.keys(changes).length) {
         return;
       }
       action = BlogAuditAction.UPDATED;
@@ -548,9 +719,9 @@ export class BlogsRepository {
       blogTitle: after?.title ?? before.title,
       actorId: user.id,
       postAuthorId: before.authorId,
-      action,
+      action: lifecycleAction ?? action,
       changes,
-      snapshot: after ? null : before,
+      snapshot: lifecycleAction || !after ? before : null,
     });
   }
 
@@ -654,7 +825,11 @@ export class BlogsRepository {
     for (const row of blogs) {
       const blog = byId.get(row.id);
       // Recheck status after the second query so concurrent unpublishing cannot expose drafts.
-      if (!blog || (publishedOrder && blog.status !== BlogStatus.PUBLISHED)) {
+      if (
+        !blog ||
+        blog.deletedAt ||
+        (publishedOrder && blog.status !== BlogStatus.PUBLISHED)
+      ) {
         continue;
       }
       const { content, ...response } = this.toResponse(blog);

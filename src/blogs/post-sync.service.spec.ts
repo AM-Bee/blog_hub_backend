@@ -21,7 +21,12 @@ function fixture() {
     createdAt: new Date(),
     updatedAt: new Date(),
   };
-  let row: { id: string; authorId: string; version: number } | null = null;
+  let row: {
+    id: string;
+    authorId: string;
+    version: number;
+    deletedAt?: Date;
+  } | null = null;
   let failReceipt = false;
   const receipts = new Map<string, { requestHash: string; result: unknown }>();
   const manager = {
@@ -189,6 +194,47 @@ describe('post synchronization', () => {
     );
     expect(result).toEqual({ deleted: true, id: f.dto.entityId });
     expect(f.posts.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps trashed stable IDs occupied, rejects edits, and acknowledges deletion without overwriting the trash actor', async () => {
+    const f = fixture();
+    f.row = {
+      id: f.dto.entityId,
+      authorId: f.user.id,
+      version: 2,
+      deletedAt: new Date(),
+    };
+    await expect(f.service.apply(f.dto, f.user)).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(
+      f.service.apply({ ...f.dto, type: 'UPDATE', baseVersion: 1 }, f.user),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(
+      await f.service.apply(
+        { ...f.dto, type: 'DELETE', input: undefined, baseVersion: 1 },
+        f.user,
+      ),
+    ).toEqual({ deleted: true, id: f.dto.entityId });
+    expect(f.posts.remove).not.toHaveBeenCalled();
+    f.row = {
+      id: f.dto.entityId,
+      authorId: randomUUID(),
+      version: 2,
+      deletedAt: new Date(),
+    };
+    await expect(
+      f.service.apply(
+        {
+          ...f.dto,
+          operationId: randomUUID(),
+          type: 'DELETE',
+          input: undefined,
+          baseVersion: 1,
+        },
+        f.user,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
   });
 
   it('hashes editable fields independently of JSON key order, while detecting image and version changes', () => {

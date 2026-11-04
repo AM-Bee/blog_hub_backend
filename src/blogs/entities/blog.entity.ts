@@ -2,6 +2,7 @@ import { BlogStatus } from '../enums/blog-status.enum.js';
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -18,6 +19,7 @@ import { BlogTagEntity } from './blog-tag.entity.js';
 @Entity('blogs')
 @Index('UQ_blogs_slug', ['slug'], { unique: true })
 @Index('IDX_blogs_published', ['status', 'publishedAt', 'id'])
+@Index('IDX_blogs_trash', ['authorId', 'deletedAt', 'id'])
 export class BlogEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -75,6 +77,13 @@ export class BlogEntity {
 
   @OneToMany(() => BlogTagEntity, (link) => link.blog)
   tagLinks: Relation<BlogTagEntity[]>;
+
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
+
+  // Historical actor ID survives account removal, like audit actor IDs.
+  @Column({ name: 'deleted_by_id', type: 'uuid', nullable: true })
+  deletedById: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

@@ -1,5 +1,7 @@
 # Blog comments and replies
 
+Post deletion now moves the post to Trash; permanent deletion requires a Trash endpoint. See [BLOG_TRASH.md](BLOG_TRASH.md) for restoration, permissions, preserved relationships, and storage limits.
+
 Administrative access now requires explicit permissions; the main admin has all administrative permissions. See [ADMIN_PERMISSIONS.md](ADMIN_PERMISSIONS.md) for the current permission matrix and rollout. Owner restrictions still apply.
 
 Comments use the existing NestJS authentication and PostgreSQL connection. There
