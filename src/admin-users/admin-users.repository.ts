@@ -1,3 +1,9 @@
+import { UpdateUserPermissionsDto } from './dto/update-user-permissions.dto.js';
+import {
+  effectivePermissions,
+  hasPermission,
+  Permission,
+} from '../users/permissions.js';
 import type { AdminUser, UserPage } from './interfaces/admin-user.interface.js';
 import type { User } from '../users/interfaces/user.interface.js';
 import {
@@ -69,7 +75,10 @@ export class AdminUsersRepository {
   async updateStatus(
     id: string,
     input: UpdateUserStatusDto,
+    actor: User,
   ): Promise<AdminUser> {
+    if (!hasPermission(actor, Permission.USERS_MANAGE))
+      throw new ForbiddenException('User management permission required');
     const dto = await validateDto(input, UpdateUserStatusDto);
     await this.userRepository.manager.transaction(async (manager) => {
       // Use the same user lock as login and password reset to serialize account changes.
@@ -80,9 +89,12 @@ export class AdminUsersRepository {
       if (!user) {
         throw new NotFoundException('User not found');
       }
-      if (user.role !== UserRole.AUTHOR) {
+      if (
+        user.role === UserRole.SUPER_ADMIN ||
+        (user.role === UserRole.ADMIN && actor.role !== UserRole.SUPER_ADMIN)
+      ) {
         throw new ForbiddenException(
-          'Only author accounts can be enabled or disabled',
+          'Only the main admin can change regular admin status; the main admin is protected',
         );
       }
       await manager.update(UserEntity, { id }, { status: dto.status });
@@ -106,7 +118,12 @@ export class AdminUsersRepository {
     return this.findOne(id);
   }
 
-  async updateRole(id: string, input: UpdateUserRoleDto): Promise<AdminUser> {
+  async updateRole(
+    id: string,
+    input: UpdateUserRoleDto,
+    actor: User,
+  ): Promise<AdminUser> {
+    this.assertMainAdmin(actor);
     const dto = await validateDto(input, UpdateUserRoleDto);
     await this.userRepository.manager.transaction(async (manager) => {
       // Share the account lock with status updates so a disabled author cannot be promoted concurrently.
@@ -115,15 +132,52 @@ export class AdminUsersRepository {
         lock: { mode: 'pessimistic_write' },
       });
       if (!user) throw new NotFoundException('User not found');
-      if (user.role === UserRole.ADMIN) return;
+      if (user.role === UserRole.SUPER_ADMIN)
+        throw new ForbiddenException('The main admin is protected');
+      if (user.role === UserRole.ADMIN && dto.permissions === undefined) return;
       if (user.status !== UserStatus.ACTIVE) {
         throw new ForbiddenException(
           'Enable the author account before promoting it',
         );
       }
-      await manager.update(UserEntity, { id }, { role: dto.role });
+      await manager.update(
+        UserEntity,
+        { id },
+        { role: dto.role, permissions: dto.permissions ?? [] },
+      );
     });
     return this.findOne(id);
+  }
+
+  async updatePermissions(
+    id: string,
+    input: UpdateUserPermissionsDto,
+    actor: User,
+  ): Promise<AdminUser> {
+    this.assertMainAdmin(actor);
+    const dto = await validateDto(input, UpdateUserPermissionsDto);
+    await this.userRepository.manager.transaction(async (manager) => {
+      const user = await manager.findOne(UserEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) throw new NotFoundException('User not found');
+      if (user.role !== UserRole.ADMIN)
+        throw new ForbiddenException(
+          'Permissions can only be assigned to regular admins',
+        );
+      await manager.update(
+        UserEntity,
+        { id },
+        { permissions: dto.permissions },
+      );
+    });
+    return this.findOne(id);
+  }
+
+  private assertMainAdmin(actor: User): void {
+    if (actor.role !== UserRole.SUPER_ADMIN)
+      throw new ForbiddenException('Only the main admin can grant access');
   }
 
   private profile(user: UserEntity): User {
@@ -132,6 +186,7 @@ export class AdminUsersRepository {
       displayName: user.displayName,
       email: user.email,
       role: user.role,
+      permissions: effectivePermissions(user),
       status: user.status,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

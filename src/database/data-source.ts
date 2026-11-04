@@ -1,3 +1,4 @@
+import { AddAdminPermissions1793750400000 } from './migrations/1793750400000-AddAdminPermissions.js';
 import 'reflect-metadata';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
@@ -42,5 +43,6 @@ export default new DataSource({
     AddReactions1793577700000,
     AddFaqs1793664000000,
     AddPostSync1793664100000,
+    AddAdminPermissions1793750400000,
   ],
 });

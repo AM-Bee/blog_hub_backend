@@ -1,3 +1,5 @@
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
+import { Permission } from '../users/permissions.js';
 import { dtoValidationPipe } from '../common/validation.utils.js';
 import {
   Body,
@@ -8,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -17,6 +20,8 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { UpdateUserPermissionsDto } from './dto/update-user-permissions.dto.js';
+import type { AuthenticatedRequest } from '../auth/guards/jwt-auth.guard.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -34,6 +39,7 @@ import {
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermissions(Permission.USERS_MANAGE)
 @Controller('admin/users')
 export class AdminUsersController {
   constructor(
@@ -57,6 +63,8 @@ export class AdminUsersController {
     return this.users.findOne(id);
   }
 
+  @Roles(UserRole.SUPER_ADMIN)
+  @RequirePermissions(Permission.USERS_GRANT_ACCESS)
   @Patch(':id')
   @ApiOperation({ summary: 'Promote an active author to admin' })
   @ApiBody({ type: UpdateUserRoleDto })
@@ -64,19 +72,41 @@ export class AdminUsersController {
   updateRole(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(dtoValidationPipe(UpdateUserRoleDto)) dto: UpdateUserRoleDto,
+    @Req() request: AuthenticatedRequest,
   ) {
-    return this.users.updateRole(id, dto);
+    return this.users.updateRole(id, dto, request.user);
+  }
+
+  @Patch(':id/permissions')
+  @Roles(UserRole.SUPER_ADMIN)
+  @RequirePermissions(Permission.USERS_GRANT_ACCESS)
+  @ApiOperation({
+    summary: 'Replace a regular admin permissions list (main admin only)',
+  })
+  @ApiBody({ type: UpdateUserPermissionsDto })
+  @ApiOkResponse({ type: AdminUserResponseDto })
+  updatePermissions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(dtoValidationPipe(UpdateUserPermissionsDto))
+    dto: UpdateUserPermissionsDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.users.updatePermissions(id, dto, request.user);
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Enable or disable an author account as an admin' })
+  @ApiOperation({
+    summary:
+      'Enable/disable authors with users.manage; main admin may also change regular admins',
+  })
   @ApiBody({ type: UpdateUserStatusDto })
   @ApiOkResponse({ type: AdminUserResponseDto })
   updateStatus(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(dtoValidationPipe(UpdateUserStatusDto))
     dto: UpdateUserStatusDto,
+    @Req() request: AuthenticatedRequest,
   ) {
-    return this.users.updateStatus(id, dto);
+    return this.users.updateStatus(id, dto, request.user);
   }
 }

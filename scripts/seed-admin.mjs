@@ -58,7 +58,7 @@ export async function seedAdmin(client, env) {
 }
 
 function existingAdmin(user) {
-  if (user.role !== 'admin') {
+  if (!['admin', 'super_admin'].includes(user.role)) {
     throw new Error(
       'ADMIN_EMAIL belongs to an author. Choose a different email; existing authors are not promoted automatically.',
     );

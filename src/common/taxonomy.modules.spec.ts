@@ -1,3 +1,4 @@
+import { Permission } from '../users/permissions.js';
 import { ChatModule } from '../chat/chat.module.js';
 import { ConversationEntity } from '../chat/entities/conversation.entity.js';
 import { MessageEntity } from '../chat/entities/message.entity.js';
@@ -107,7 +108,14 @@ describe.each([CategoriesController, TagsController])(
       expect(() => guard.canActivate(ctx({ role: UserRole.AUTHOR }))).toThrow(
         ForbiddenException,
       );
-      expect(guard.canActivate(ctx({ role: UserRole.ADMIN }))).toBe(true);
+      expect(
+        guard.canActivate(
+          ctx({
+            role: UserRole.ADMIN,
+            permissions: [Permission.TAXONOMY_DELETE],
+          }),
+        ),
+      ).toBe(true);
     });
   },
 );
@@ -191,9 +199,9 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
       expect(document.paths['/api/v1/admin/users'].get?.security).toEqual([
         { bearer: [] },
       ]);
-      expect(document.paths['/api/v1/admin/users/{id}'].patch?.security).toEqual([
-        { bearer: [] },
-      ]);
+      expect(
+        document.paths['/api/v1/admin/users/{id}'].patch?.security,
+      ).toEqual([{ bearer: [] }]);
       expect(document.paths['/api/v1/me/notifications'].get?.security).toEqual([
         { bearer: [] },
       ]);
@@ -213,7 +221,7 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
           ?.security,
       ).toEqual([{ bearer: [] }]);
       expect(document.components?.schemas?.UserResponseDto).toMatchObject({
-        properties: { role: { enum: ['author', 'admin'] } },
+        properties: { role: { enum: ['super_admin', 'author', 'admin'] } },
       });
     } finally {
       await app.close();

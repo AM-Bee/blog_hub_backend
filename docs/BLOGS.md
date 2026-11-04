@@ -1,5 +1,7 @@
 # Blogs API
 
+Administrative access now requires explicit permissions; the main admin has all administrative permissions. See [ADMIN_PERMISSIONS.md](ADMIN_PERMISSIONS.md) for the current permission matrix and rollout. Owner restrictions still apply.
+
 All paths below are relative to `/api/v1`. Swagger is available at `/api/docs`.
 
 Visitors can read published blogs. Authors can create blogs and edit/delete their own posts. Admins can edit only their own posts, but can delete any post, read all drafts, and publish/unpublish any post through the dedicated admin status route. Admin unpublishing blocks author publishing until an admin publishes the post again. Ownership comes from the access token; requests cannot set an author, slug, or publication timestamp.

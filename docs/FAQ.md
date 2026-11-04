@@ -1,5 +1,7 @@
 # Database-driven FAQ support chatbot
 
+Administrative access now requires explicit permissions; the main admin has all administrative permissions. See [ADMIN_PERMISSIONS.md](ADMIN_PERMISSIONS.md) for the current permission matrix and rollout. Owner restrictions still apply.
+
 This feature selects predefined answers from Supabase PostgreSQL. It makes no AI
 requests and adds no packages, embeddings, vector search, chat history, or frontend
 code. Existing JWT/session validation, roles, CORS, and security middleware remain

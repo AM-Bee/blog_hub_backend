@@ -1,3 +1,5 @@
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
+import { Permission } from '../users/permissions.js';
 import {
   Body,
   Controller,
@@ -140,6 +142,7 @@ export class BlogsController {
   @Get('admin/blogs')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermissions(Permission.BLOGS_MODERATE)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'List all blogs as an admin' })
   @ApiOkResponse({ type: BlogPageResponseDto })
@@ -153,6 +156,7 @@ export class BlogsController {
   @Get('admin/blogs/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermissions(Permission.BLOGS_MODERATE)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Read any blog as an admin' })
   @ApiOkResponse({ type: BlogResponseDto })
@@ -166,6 +170,7 @@ export class BlogsController {
   @Patch('admin/blogs/:id/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermissions(Permission.BLOGS_MODERATE)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Publish any blog or unpublish it and block author publishing',
@@ -260,7 +265,9 @@ export class BlogsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.AUTHOR, UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Delete your blog, or any blog as an admin' })
+  @ApiOperation({
+    summary: 'Delete your blog; deleting another blog requires blogs.delete',
+  })
   @ApiNoContentResponse()
   remove(
     @Param('id', new ParseUUIDPipe()) id: string,

@@ -108,7 +108,7 @@ export class CommentsController {
   @HttpCode(204)
   @ApiOperation({
     summary:
-      'Delete your own comment/reply; admins may delete any. Deleting a comment also deletes its replies.',
+      'Delete your own comment/reply; comments.delete permits deleting others. Deleting a comment also deletes its replies.',
   })
   @ApiNoContentResponse()
   remove(

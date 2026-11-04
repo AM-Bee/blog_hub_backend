@@ -6,6 +6,7 @@ export interface User {
   displayName: string;
   email: string;
   role: UserRole;
+  permissions: string[];
   status: UserStatus;
   createdAt: Date;
   updatedAt: Date;

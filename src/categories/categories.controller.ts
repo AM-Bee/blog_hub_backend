@@ -1,3 +1,5 @@
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
+import { Permission } from '../users/permissions.js';
 import { dtoValidationPipe } from '../common/validation.utils.js';
 import {
   Body,
@@ -89,6 +91,7 @@ export class CategoriesController {
   @HttpCode(204)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermissions(Permission.TAXONOMY_DELETE)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete a category as an admin' })
   @ApiNoContentResponse()

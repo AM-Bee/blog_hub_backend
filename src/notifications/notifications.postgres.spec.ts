@@ -128,7 +128,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         });
       owner = await user('owner@example.com');
       other = await user('other@example.com');
-      admin = await user('admin@example.com', UserRole.ADMIN);
+      admin = await user('admin@example.com', UserRole.SUPER_ADMIN);
       category = await database
         .getRepository(CategoryEntity)
         .save({

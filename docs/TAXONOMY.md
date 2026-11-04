@@ -1,5 +1,7 @@
 # Categories and Tags API
 
+Administrative access now requires explicit permissions; the main admin has all administrative permissions. See [ADMIN_PERMISSIONS.md](ADMIN_PERMISSIONS.md) for the current permission matrix and rollout. Owner restrictions still apply.
+
 Categories and tags use the same permissions. Each tag belongs to one required category, and each category can have many tags. All paths are relative to `/api/v1`; Swagger documentation is at `/api/docs`.
 
 | Action    | Visitor        | Author           | Admin     |

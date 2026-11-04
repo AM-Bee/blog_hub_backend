@@ -1,3 +1,5 @@
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
+import { Permission } from '../users/permissions.js';
 import {
   Body,
   Controller,
@@ -45,6 +47,7 @@ import {
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, ThrottlerGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermissions(Permission.FAQS_MANAGE)
 @Controller('admin')
 export class AdminFaqController {
   constructor(@Inject(FaqService) private readonly faqs: FaqService) {}
@@ -88,6 +91,7 @@ export class AdminFaqController {
     return this.faqs.update(id, input);
   }
 
+  @RequirePermissions(Permission.FAQS_DELETE)
   @Delete('faqs/:id')
   @HttpCode(204)
   @ApiOperation({
@@ -129,6 +133,7 @@ export class AdminFaqController {
     return this.faqs.updateCategory(id, input);
   }
 
+  @RequirePermissions(Permission.FAQS_DELETE)
   @Delete('faq-categories/:id')
   @HttpCode(204)
   @ApiOperation({ summary: 'Delete an empty FAQ category' })

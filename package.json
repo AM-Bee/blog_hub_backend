@@ -23,7 +23,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "seed": "tsc -p tsconfig.build.json && node dist/seed.js",
     "migration:run": "tsc -p tsconfig.build.json && node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
-    "seed:faq": "tsc -p tsconfig.build.json && node dist/faq/seed-faqs.js"
+    "seed:faq": "tsc -p tsconfig.build.json && node dist/faq/seed-faqs.js",
+    "admin:make-super": "node scripts/make-super-admin.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

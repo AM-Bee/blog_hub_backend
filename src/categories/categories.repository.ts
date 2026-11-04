@@ -1,3 +1,4 @@
+import { hasPermission, Permission } from '../users/permissions.js';
 import {
   ConflictException,
   ForbiddenException,
@@ -85,7 +86,10 @@ export class CategoriesRepository {
   ): Promise<Category> {
     this.assertWriter(user);
     const category = await this.findById(id);
-    if (user.role !== UserRole.ADMIN && category.createdById !== user.id) {
+    if (
+      !hasPermission(user, Permission.TAXONOMY_MANAGE) &&
+      category.createdById !== user.id
+    ) {
       throw new ForbiddenException('You can only edit categories you created');
     }
     const { name } = await validateDto(updateCategoryDto, UpdateCategoryDto);
@@ -118,7 +122,7 @@ export class CategoriesRepository {
   }
 
   async remove(id: string, user: AuthUser): Promise<void> {
-    if (user.role !== UserRole.ADMIN) {
+    if (!hasPermission(user, Permission.TAXONOMY_DELETE)) {
       throw new ForbiddenException('Only admins can delete categories');
     }
     // PostgreSQL deletes child tags atomically through ON DELETE CASCADE.
@@ -137,7 +141,11 @@ export class CategoriesRepository {
   }
 
   private assertWriter(user: AuthUser): void {
-    if (![UserRole.AUTHOR, UserRole.ADMIN].includes(user.role)) {
+    if (
+      ![UserRole.AUTHOR, UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(
+        user.role,
+      )
+    ) {
       throw new ForbiddenException('Author or admin access is required');
     }
   }

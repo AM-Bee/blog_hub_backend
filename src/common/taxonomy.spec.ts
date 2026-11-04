@@ -1,3 +1,5 @@
+import type { User } from '../users/interfaces/user.interface.js';
+import { ADMIN_PERMISSIONS } from '../users/permissions.js';
 import { CategoriesRepository } from '../categories/categories.repository.js';
 import { TagsRepository } from '../tags/tags.repository.js';
 import {
@@ -35,16 +37,22 @@ const resources = [
     Dto: CreateTagDto,
   },
 ];
-const author = {
+const author: User = {
   id: randomUUID(),
   email: 'author@example.com',
   displayName: 'Author',
   role: UserRole.AUTHOR,
+  permissions: [],
   status: UserStatus.ACTIVE,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
-const admin = { ...author, id: randomUUID(), role: UserRole.ADMIN };
+const admin = {
+  ...author,
+  id: randomUUID(),
+  role: UserRole.ADMIN,
+  permissions: ADMIN_PERMISSIONS,
+};
 const duplicate = (constraint: string) =>
   new QueryFailedError(
     'INSERT',

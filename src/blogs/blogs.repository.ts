@@ -1,3 +1,4 @@
+import { hasPermission, Permission } from '../users/permissions.js';
 import {
   BadRequestException,
   ConflictException,
@@ -399,7 +400,7 @@ export class BlogsRepository {
       }
       const before = await this.auditSnapshot(manager, id);
       await this.recordAudit(manager, user, before, null);
-      if (user.role === UserRole.ADMIN && blog.authorId !== user.id) {
+      if (blog.authorId !== user.id) {
         await manager.insert(NotificationEntity, {
           userId: blog.authorId,
           type: NotificationType.POST_DELETED,
@@ -722,12 +723,16 @@ export class BlogsRepository {
   }
 
   private assertWriter(user: AuthUser): void {
-    if (![UserRole.AUTHOR, UserRole.ADMIN].includes(user.role)) {
+    if (
+      ![UserRole.AUTHOR, UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(
+        user.role,
+      )
+    ) {
       throw new ForbiddenException('Author or admin access is required');
     }
   }
   private assertAdmin(user: AuthUser): void {
-    if (user.role !== UserRole.ADMIN) {
+    if (!hasPermission(user, Permission.BLOGS_MODERATE)) {
       throw new ForbiddenException('Admin access is required');
     }
   }
@@ -737,7 +742,10 @@ export class BlogsRepository {
     }
   }
   private assertOwnerOrAdmin(blog: BlogEntity, user: AuthUser): void {
-    if (user.role !== UserRole.ADMIN && blog.authorId !== user.id) {
+    if (
+      !hasPermission(user, Permission.BLOGS_DELETE) &&
+      blog.authorId !== user.id
+    ) {
       throw new ForbiddenException('You can only manage your own blogs');
     }
   }

@@ -1,5 +1,7 @@
 # Blog publication moderation
 
+Administrative access now requires explicit permissions; the main admin has all administrative permissions. See [ADMIN_PERMISSIONS.md](ADMIN_PERMISSIONS.md) for the current permission matrix and rollout. Owner restrictions still apply.
+
 Admins can publish or unpublish any post through a dedicated status route. Editing another user's title, content, image, category, or tags remains forbidden.
 
 ## Admin route

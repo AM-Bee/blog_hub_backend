@@ -1,3 +1,4 @@
+import { effectivePermissions } from './permissions.js';
 import type { User } from './interfaces/user.interface.js';
 import {
   BadRequestException,
@@ -71,6 +72,7 @@ export class UsersRepository {
       displayName: user.displayName,
       email: user.email,
       role: user.role,
+      permissions: effectivePermissions(user),
       status: user.status,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

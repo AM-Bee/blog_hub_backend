@@ -1,3 +1,4 @@
+import { hasPermission, Permission } from '../users/permissions.js';
 import {
   ConflictException,
   ForbiddenException,
@@ -113,7 +114,10 @@ export class TagsRepository {
   ): Promise<Tag> {
     this.assertWriter(user);
     const tag = await this.findById(id);
-    if (user.role !== UserRole.ADMIN && tag.createdById !== user.id) {
+    if (
+      !hasPermission(user, Permission.TAXONOMY_MANAGE) &&
+      tag.createdById !== user.id
+    ) {
       throw new ForbiddenException('You can only edit tags you created');
     }
     const { name } = await validateDto(updateTagDto, UpdateTagDto);
@@ -148,7 +152,7 @@ export class TagsRepository {
   }
 
   async remove(id: string, user: AuthUser): Promise<void> {
-    if (user.role !== UserRole.ADMIN) {
+    if (!hasPermission(user, Permission.TAXONOMY_DELETE)) {
       throw new ForbiddenException('Only admins can delete tags');
     }
     const result = await this.tagRepository.delete(id);
@@ -166,7 +170,11 @@ export class TagsRepository {
   }
 
   private assertWriter(user: AuthUser): void {
-    if (![UserRole.AUTHOR, UserRole.ADMIN].includes(user.role)) {
+    if (
+      ![UserRole.AUTHOR, UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(
+        user.role,
+      )
+    ) {
       throw new ForbiddenException('Author or admin access is required');
     }
   }

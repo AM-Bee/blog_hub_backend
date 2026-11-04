@@ -1,5 +1,7 @@
 # Blog comments and replies
 
+Administrative access now requires explicit permissions; the main admin has all administrative permissions. See [ADMIN_PERMISSIONS.md](ADMIN_PERMISSIONS.md) for the current permission matrix and rollout. Owner restrictions still apply.
+
 Comments use the existing NestJS authentication and PostgreSQL connection. There
 is no new authentication system, Supabase client, environment variable, or package.
 The frontend calls NestJS, never the Supabase table directly.

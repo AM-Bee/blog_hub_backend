@@ -58,6 +58,9 @@ export class UserEntity {
   @Column({ type: 'enum', enum: UserRole, default: UserRole.AUTHOR })
   role: UserRole;
 
+  @Column({ type: 'text', array: true, default: [] })
+  permissions: string[];
+
   @Column({ type: 'enum', enum: UserStatus, default: UserStatus.ACTIVE })
   status: UserStatus;
 

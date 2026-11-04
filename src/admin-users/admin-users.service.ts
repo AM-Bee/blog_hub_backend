@@ -1,3 +1,5 @@
+import type { User } from '../users/interfaces/user.interface.js';
+import { UpdateUserPermissionsDto } from './dto/update-user-permissions.dto.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { AdminUsersRepository } from './admin-users.repository.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
@@ -11,6 +13,10 @@ export class AdminUsersService {
     private readonly repository: AdminUsersRepository,
   ) {}
 
+  updatePermissions(id: string, dto: UpdateUserPermissionsDto, actor: User) {
+    return this.repository.updatePermissions(id, dto, actor);
+  }
+
   findAll(query: ListUsersQueryDto) {
     return this.repository.findAll(query);
   }
@@ -19,11 +25,11 @@ export class AdminUsersService {
     return this.repository.findOne(id);
   }
 
-  updateStatus(id: string, dto: UpdateUserStatusDto) {
-    return this.repository.updateStatus(id, dto);
+  updateStatus(id: string, dto: UpdateUserStatusDto, actor: User) {
+    return this.repository.updateStatus(id, dto, actor);
   }
 
-  updateRole(id: string, dto: UpdateUserRoleDto) {
-    return this.repository.updateRole(id, dto);
+  updateRole(id: string, dto: UpdateUserRoleDto, actor: User) {
+    return this.repository.updateRole(id, dto, actor);
   }
 }

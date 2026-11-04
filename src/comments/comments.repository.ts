@@ -1,3 +1,4 @@
+import { hasPermission, Permission } from '../users/permissions.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -11,7 +12,6 @@ import { BlogEntity } from '../blogs/entities/blog.entity.js';
 import { BlogStatus } from '../blogs/enums/blog-status.enum.js';
 import { BlogPaginationQueryDto } from '../blogs/dto/list-blogs-query.dto.js';
 import type { AuthUser } from '../auth/interfaces/auth.interface.js';
-import { UserRole } from '../users/enums/user-role.enum.js';
 import { ReactionsRepository } from '../reactions/reactions.repository.js';
 import { validateDto } from '../common/validation.utils.js';
 import { BlogCommentEntity } from './entities/blog-comment.entity.js';
@@ -121,7 +121,10 @@ export class CommentsRepository {
     await this.database.transaction(async (manager) => {
       await this.publishedBlog(manager, original.blogId, 'pessimistic_write');
       const item = await this.findComment(manager, id);
-      if (item.userId !== user.id && user.role !== UserRole.ADMIN) {
+      if (
+        item.userId !== user.id &&
+        !hasPermission(user, Permission.COMMENTS_DELETE)
+      ) {
         throw new ForbiddenException('You can only delete your own comments');
       }
       await manager.delete(BlogCommentEntity, id);

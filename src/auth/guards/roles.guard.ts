@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { UserRole } from '../../users/enums/user-role.enum.js';
+import { hasPermission, type Permission } from '../../users/permissions.js';
+import { PERMISSIONS_KEY } from '../decorators/permissions.decorator.js';
+import { UserRole } from '../../users/enums/user-role.enum.js';
 import { ROLES_KEY } from '../decorators/roles.decorator.js';
 import type { AuthenticatedRequest } from './jwt-auth.guard.js';
 
@@ -20,14 +22,25 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!roles?.length) {
+    const permissions = this.reflector.getAllAndOverride<Permission[]>(
+      PERMISSIONS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!roles?.length && !permissions?.length) {
       return true;
     }
     const user = context.switchToHttp().getRequest<AuthenticatedRequest>().user;
     if (!user) {
       throw new UnauthorizedException();
     }
-    if (!roles.includes(user.role)) {
+    const allowedRole =
+      !roles?.length ||
+      roles.includes(user.role) ||
+      (user.role === UserRole.SUPER_ADMIN && roles.includes(UserRole.ADMIN));
+    if (
+      !allowedRole ||
+      permissions?.some((permission) => !hasPermission(user, permission))
+    ) {
       throw new ForbiddenException('Insufficient permissions');
     }
     return true;

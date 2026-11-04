@@ -16,6 +16,7 @@ function fixture() {
     displayName: 'Writer',
     email: 'writer@example.com',
     role: UserRole.AUTHOR,
+    permissions: [],
     status: UserStatus.ACTIVE,
     createdAt: new Date(),
     updatedAt: new Date(),

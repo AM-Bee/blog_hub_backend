@@ -17,6 +17,12 @@ export class UserResponseDto implements User {
   @ApiProperty({ enum: UserRole })
   role: UserRole;
 
+  @ApiProperty({
+    type: [String],
+    description: 'Effective administrative permissions',
+  })
+  permissions: string[];
+
   @ApiProperty({ enum: UserStatus })
   status: UserStatus;
 

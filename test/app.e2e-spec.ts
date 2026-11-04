@@ -170,7 +170,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       await database.getRepository(UserEntity).save({
         displayName: 'Admin',
         email: 'admin@acceptance.example',
-        role: UserRole.ADMIN,
+        role: UserRole.SUPER_ADMIN,
         passwordHash: await bcrypt.hash('Password123!', 4),
       });
       aliceToken = (await login(alice.email).expect(200)).body.accessToken;
@@ -323,7 +323,9 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ status: 'active' })
         .expect(200);
-    });
+      // Disabling revoked the shared token; later cases need a fresh session.
+      bobToken = (await login(bob.email).expect(200)).body.accessToken;
+    }, 120000);
 
     it('supports published comments, one reply level, ownership, moderation, and cascade deletion', async () => {
       const token = (await login(bob.email).expect(200)).body.accessToken;
@@ -1244,7 +1246,178 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       }
     }, 180000);
 
+    it('enforces separate moderation and deletion grants without expanding ownership', async () => {
+      const users = database.getRepository(UserEntity);
+      const delegated = await users.save({
+        displayName: 'Restricted admin',
+        email: 'restricted@acceptance.example',
+        role: UserRole.ADMIN,
+        permissions: [
+          'blogs.moderate',
+          'taxonomy.manage',
+          'faqs.manage',
+          'users.manage',
+        ],
+        passwordHash: await bcrypt.hash('Password123!', 4),
+      });
+      const token = (await login(delegated.email).expect(200)).body.accessToken;
+      const api = (token: string) => ({ Authorization: `Bearer ${token}` });
+      const main = await users.findOneByOrFail({
+        email: 'admin@acceptance.example',
+      });
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${main.id}/status`)
+        .set(api(token))
+        .send({ status: 'disabled' })
+        .expect(403);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${main.id}/permissions`)
+        .set(api(adminToken))
+        .send({ permissions: [] })
+        .expect(403);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${main.id}`)
+        .set(api(adminToken))
+        .send({ role: 'admin' })
+        .expect(403);
+      const category = (
+        await request(app.getHttpServer())
+          .post('/api/v1/categories')
+          .set(api(aliceToken))
+          .send({ name: 'Permission checks' })
+          .expect(201)
+      ).body;
+      const blog = (
+        await request(app.getHttpServer())
+          .post('/api/v1/blogs')
+          .set(api(aliceToken))
+          .send({
+            title: 'Permission checks',
+            content: 'Content',
+            categoryId: category.id,
+            status: 'published',
+          })
+          .expect(201)
+      ).body;
+      const comment = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/blogs/${blog.id}/comments`)
+          .set(api(aliceToken))
+          .send({ content: 'Author comment' })
+          .expect(201)
+      ).body;
+      await request(app.getHttpServer())
+        .patch(`/api/v1/blogs/${blog.id}`)
+        .set(api(token))
+        .send({ content: 'Cannot rewrite another author' })
+        .expect(403);
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/blogs')
+        .set(api(token))
+        .expect(200);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/categories/${category.id}`)
+        .set(api(token))
+        .send({ name: 'Moderated category' })
+        .expect(200);
+      for (const path of [
+        `blogs/${blog.id}`,
+        `comments/${comment.id}`,
+        `categories/${category.id}`,
+        `tags/${randomUUID()}`,
+        `admin/faqs/${randomUUID()}`,
+        `admin/faq-categories/${randomUUID()}`,
+      ]) {
+        await request(app.getHttpServer())
+          .delete(`/api/v1/${path}`)
+          .set(api(token))
+          .expect(403);
+      }
+      const own = (
+        await request(app.getHttpServer())
+          .post('/api/v1/blogs')
+          .set(api(token))
+          .send({
+            title: 'Admin own post',
+            content: 'Own content',
+            categoryId: category.id,
+          })
+          .expect(201)
+      ).body;
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${own.id}`)
+        .set(api(token))
+        .expect(204);
+      const ownComment = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/blogs/${blog.id}/comments`)
+          .set(api(token))
+          .send({ content: 'Own comment' })
+          .expect(201)
+      ).body;
+      await request(app.getHttpServer())
+        .delete(`/api/v1/comments/${ownComment.id}`)
+        .set(api(token))
+        .expect(204);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/blogs/${blog.id}/status`)
+        .set(api(token))
+        .send({ status: 'draft' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${delegated.id}/permissions`)
+        .set(api(adminToken))
+        .send({
+          permissions: [
+            'blogs.delete',
+            'comments.delete',
+            'taxonomy.delete',
+            'faqs.delete',
+          ],
+        })
+        .expect(200);
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/blogs')
+        .set(api(token))
+        .expect(403);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/blogs/${blog.id}/status`)
+        .set(api(adminToken))
+        .send({ status: 'published' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/comments/${comment.id}`)
+        .set(api(token))
+        .expect(204);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/blogs/${blog.id}`)
+        .set(api(token))
+        .expect(204);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/categories/${category.id}`)
+        .set(api(token))
+        .expect(204);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${delegated.id}/status`)
+        .set(api(adminToken))
+        .send({ status: 'disabled' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set(api(token))
+        .expect(401);
+    }, 120000);
+
     it('promotes authors only through admin authorization and applies the role to existing tokens', async () => {
+      await database.getRepository(BlogEntity).save({
+        authorId: bob.id,
+        title: 'Preserved on promotion',
+        slug: `promotion-${randomUUID()}`,
+        content: 'Keep existing posts',
+      });
+      const blogCount = await database
+        .getRepository(BlogEntity)
+        .countBy({ authorId: bob.id });
       const authorToken = (await login(bob.email).expect(200)).body.accessToken;
       const path = `/api/v1/admin/users/${bob.id}`;
       const promote = (token: string, body: object = { role: 'admin' }) =>
@@ -1301,7 +1474,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         id: bob.id,
         role: 'admin',
         status: 'active',
-        blogCount: 0,
+        blogCount,
       });
       for (const field of [
         'passwordHash',
@@ -1319,10 +1492,40 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       ).toBe(UserRole.ADMIN);
       const repeated = await promote(adminToken).expect(200);
       expect(repeated.body.updatedAt).toBe(result.body.updatedAt);
+      expect(result.body.permissions).toEqual([]);
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/users')
+        .set('Authorization', `Bearer ${bobToken}`)
+        .expect(403);
+      await request(app.getHttpServer())
+        .patch(`${path}/permissions`)
+        .set('Authorization', `Bearer ${bobToken}`)
+        .send({ permissions: ['users.manage'] })
+        .expect(403);
+      await request(app.getHttpServer())
+        .patch(`${path}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ permissions: ['users.manage', 'blogs.moderate'] })
+        .expect(200);
       await request(app.getHttpServer())
         .get('/api/v1/admin/users')
         .set('Authorization', `Bearer ${bobToken}`)
         .expect(200);
+      await promote(bobToken).expect(403);
+      await request(app.getHttpServer())
+        .patch(`${path}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ permissions: ['users.grant_access'] })
+        .expect(400);
+      await request(app.getHttpServer())
+        .patch(`${path}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ permissions: [] })
+        .expect(200);
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/users')
+        .set('Authorization', `Bearer ${bobToken}`)
+        .expect(403);
       const profile = await request(app.getHttpServer())
         .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${bobToken}`)
