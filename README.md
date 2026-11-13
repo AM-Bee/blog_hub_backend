@@ -37,7 +37,7 @@ Google login and explicit account linking are documented in [docs/GOOGLE_AUTH.md
 
 Private mobile chat push registration, Expo delivery, and Render worker setup are documented in [docs/MOBILE_CHAT_PUSH_HANDOFF.md](docs/MOBILE_CHAT_PUSH_HANDOFF.md). Apply its migration before starting this version.
 
-The public Contact Us API, reCAPTCHA v2 configuration, SMTP delivery, and deployment checks are documented in [docs/CONTACT.md](docs/CONTACT.md). It does not store submissions in the database.
+The public Contact Us API and reCAPTCHA v2 configuration are documented in [docs/CONTACT.md](docs/CONTACT.md). Set up Gmail API delivery using [docs/GMAIL_API_SETUP.md](docs/GMAIL_API_SETUP.md). It does not store submissions in the database.
 
 Self-service profile editing and password changes are documented in [docs/ACCOUNT.md](docs/ACCOUNT.md).
 

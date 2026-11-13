@@ -32,28 +32,27 @@ export function recaptchaSettings() {
 }
 
 export function contactMailSettings() {
-  const { SMTP_HOST, SMTP_USER, SMTP_PASSWORD } = process.env;
-  const port = Number(process.env.SMTP_PORT ?? 587);
-  const from = process.env.CONTACT_FROM_EMAIL?.trim();
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
+  const from = process.env.GMAIL_SENDER_EMAIL?.trim();
   const to = process.env.CONTACT_SUPPORT_EMAIL?.trim();
   const address = (value: string | undefined) =>
     !!value && !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value) && isEmail(value);
   if (
-    !SMTP_HOST ||
-    !SMTP_USER ||
-    !SMTP_PASSWORD ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535 ||
+    !clientId ||
+    !clientSecret ||
+    !refreshToken ||
     !address(from) ||
     !address(to)
   )
-    throw new ServiceUnavailableException('Contact email is not configured');
+    throw new ServiceUnavailableException(
+      'Contact Gmail API is not configured',
+    );
   return {
-    host: SMTP_HOST,
-    port,
-    user: SMTP_USER,
-    password: SMTP_PASSWORD,
+    clientId,
+    clientSecret,
+    refreshToken,
     from: from!,
     to: to!,
   };

@@ -107,6 +107,14 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         'acceptance-test-secret-at-least-thirty-two-bytes',
       );
       vi.stubEnv('FRONTEND_ORIGINS', origin);
+      for (const [key, value] of Object.entries({
+        GMAIL_CLIENT_ID: 'acceptance-client-id',
+        GMAIL_CLIENT_SECRET: 'acceptance-client-secret',
+        GMAIL_REFRESH_TOKEN: 'acceptance-refresh-token',
+        GMAIL_SENDER_EMAIL: 'sender@example.com',
+        CONTACT_SUPPORT_EMAIL: 'support@example.com',
+      }))
+        vi.stubEnv(key, value);
       const options = {
         type: 'postgres' as const,
         host: process.env.DB_HOST,

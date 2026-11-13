@@ -110,4 +110,4 @@ Database regression tests use unique temporary schemas and mocked email delivery
 
 ## Contact Us
 
-`src/contact/` contains the public contact controller, DTO, reCAPTCHA verification, SMTP workflow, and focused tests. It has no persistence or auth dependency. Setup and API contract: [CONTACT.md](CONTACT.md).
+`src/contact/` contains the public contact controller, DTO, reCAPTCHA verification, Gmail API delivery, and focused tests. It has no persistence or application-auth dependency. Setup and API contract: [CONTACT.md](CONTACT.md); one-time sender authorization: [GMAIL_API_SETUP.md](GMAIL_API_SETUP.md). Password reset retains its separate SMTP service.
