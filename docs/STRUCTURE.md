@@ -107,3 +107,7 @@ Database regression tests use unique temporary schemas and mocked email delivery
 ## Mobile chat push
 
 `src/push/` owns session-bound Expo registrations and the PostgreSQL push outbox worker. `src/push-worker.main.ts` is a standalone background process; the web API only enqueues jobs. Contracts, migration, and Render setup: [MOBILE_CHAT_PUSH_HANDOFF.md](MOBILE_CHAT_PUSH_HANDOFF.md).
+
+## Contact Us
+
+`src/contact/` contains the public contact controller, DTO, reCAPTCHA verification, SMTP workflow, and focused tests. It has no persistence or auth dependency. Setup and API contract: [CONTACT.md](CONTACT.md).

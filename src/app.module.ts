@@ -1,3 +1,4 @@
+import { ContactModule } from './contact/contact.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module.js';
@@ -30,6 +31,7 @@ import { ChatModule } from './chat/chat.module.js';
     PushModule,
     CommentsModule,
     FaqModule,
+    ContactModule,
   ],
   controllers: [AppController],
   providers: [AppService],
