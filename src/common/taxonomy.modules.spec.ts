@@ -1,5 +1,7 @@
 import { PushDeviceEntity } from '../push/entities/push-device.entity.js';
 import { PushJobEntity } from '../push/entities/push-job.entity.js';
+import { PushModule } from '../push/push.module.js';
+import { PushWorker } from '../push/push.worker.js';
 import { Permission } from '../users/permissions.js';
 import { ChatModule } from '../chat/chat.module.js';
 import { ConversationEntity } from '../chat/entities/conversation.entity.js';
@@ -129,6 +131,7 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
 
   it('wires feature services and repositories, relations, and Swagger without a live database', async () => {
     vi.stubEnv('JWT_SECRET', 'test-secret-for-bloghub-at-least-32-bytes');
+    vi.stubEnv('EXPO_PUSH_IN_WEB', 'false');
     await dataSource.prepareMetadata();
     for (const Entity of [CategoryEntity, TagEntity]) {
       const metadata = dataSource.getMetadata(Entity);
@@ -178,12 +181,16 @@ describe('Taxonomy module and PostgreSQL metadata wiring', () => {
         AdminUsersModule,
         NotificationsModule,
         ChatModule,
+        PushModule,
       ],
     }).compile();
     const app = module.createNestApplication();
     try {
       app.setGlobalPrefix('api/v1');
       await app.init();
+      expect(
+        module.select(PushModule).get(PushWorker, { strict: true }),
+      ).toBeInstanceOf(PushWorker);
       const document = SwaggerModule.createDocument(
         app,
         new DocumentBuilder()

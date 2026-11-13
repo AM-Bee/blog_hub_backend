@@ -1,4 +1,5 @@
 import type { DataSource, EntityManager } from 'typeorm';
+import { Logger } from '@nestjs/common';
 import {
   PushWorker,
   MAX_PUSH_ATTEMPTS,
@@ -14,7 +15,7 @@ import { UserStatus } from '../users/enums/user-status.enum.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { MessageEntity } from '../chat/entities/message.entity.js';
 
-function fixture() {
+function fixture(inWeb = false) {
   const job = {
     id: 'job',
     messageId: 'message',
@@ -90,6 +91,7 @@ function fixture() {
   const worker = new PushWorker(
     { transaction } as unknown as DataSource,
     new ExpoPushClient(),
+    inWeb,
   );
   return {
     worker,
@@ -104,7 +106,12 @@ function fixture() {
   };
 }
 describe('Push worker with mocked Expo calls', () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+  });
   afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
@@ -291,5 +298,94 @@ describe('Push worker with mocked Expo calls', () => {
     worker.onApplicationBootstrap();
     await worker.onApplicationShutdown();
     expect(transaction).not.toHaveBeenCalled();
+  });
+  it.each([
+    [true, 'true', 'false', true],
+    [true, 'false', 'true', false],
+    [true, undefined, 'true', false],
+    [false, 'true', 'false', false],
+    [false, 'false', 'true', true],
+  ] as const)(
+    'selects the correct opt-in flag (web=%s, web flag=%s, standalone flag=%s)',
+    async (inWeb, webFlag, standaloneFlag, enabled) => {
+      vi.stubEnv('EXPO_PUSH_IN_WEB', webFlag);
+      vi.stubEnv('EXPO_PUSH_ENABLED', standaloneFlag);
+      const { worker } = fixture(inWeb);
+      const batch = vi.spyOn(worker, 'runBatch').mockResolvedValue();
+      worker.onApplicationBootstrap();
+      await worker.onApplicationShutdown();
+      expect(batch).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    },
+  );
+  it('processes a new web job asynchronously and persists an Expo ticket', async () => {
+    vi.stubEnv('EXPO_PUSH_IN_WEB', 'true');
+    const { worker, job, builder } = fixture(true);
+    builder.getOne.mockResolvedValueOnce(job).mockResolvedValue(null);
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ data: [{ status: 'ok', id: 'web-ticket' }] }),
+        ),
+    );
+    worker.onApplicationBootstrap();
+    expect(job.attempts).toBe(0);
+    // Await the scheduled batch without changing when the real web request returns.
+    await vi.waitFor(() => expect(job.status).toBe('receipt'));
+    await worker.onApplicationShutdown();
+    expect(job).toMatchObject({ attempts: 1, ticketId: 'web-ticket' });
+  });
+  it('keeps web startup independent of delivery failures', async () => {
+    vi.stubEnv('EXPO_PUSH_IN_WEB', 'true');
+    const { worker, job, builder } = fixture(true);
+    builder.getOne.mockResolvedValueOnce(job).mockResolvedValue(null);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    expect(() => worker.onApplicationBootstrap()).not.toThrow();
+    await vi.waitFor(() => expect(job.attempts).toBe(1));
+    await worker.onApplicationShutdown();
+    expect(job).toMatchObject({
+      status: 'pending',
+      lastError: 'expo_network_error',
+    });
+  });
+  it('does not overlap batches and stops polling on web shutdown', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('EXPO_PUSH_IN_WEB', 'true');
+    const { worker } = fixture(true);
+    let finish!: () => void;
+    const batch = vi.spyOn(worker, 'runBatch').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(batch).toHaveBeenCalledOnce();
+    const shutdown = worker.onApplicationShutdown();
+    finish();
+    await shutdown;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(batch).toHaveBeenCalledOnce();
+  });
+  it('contains database failures and retries on the next web polling cycle', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('EXPO_PUSH_IN_WEB', 'true');
+    const error = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    const { worker } = fixture(true);
+    const batch = vi
+      .spyOn(worker, 'runBatch')
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValue();
+    expect(() => worker.onApplicationBootstrap()).not.toThrow();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(batch).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledWith(
+      'Push worker database failure; queued jobs retained',
+    );
+    await worker.onApplicationShutdown();
   });
 });

@@ -1,6 +1,6 @@
 # Mobile private-chat push notifications
 
-Backend implementation only. No application/production migration, deployment, or real Expo notification was performed while implementing this feature.
+Backend implementation only. The web-service polling option requires no new migration or mobile API change. No Render deployment was performed for this update; the authorized live verification below used a temporary local web app connected to Supabase and Expo.
 
 ## Mobile API contract
 
@@ -96,7 +96,23 @@ Only active recipient registrations are captured; sender/unrelated devices are e
 
    Do this **before** starting the updated API/worker: the chat send transaction now needs both tables. Do not rely on automatic synchronization. Restarting Nest alone does not run migrations.
 
-2. Deploy the updated web API with its existing settings. It enqueues jobs but never starts an Expo sender. No mobile secret or new public API key is needed.
+2. Choose one of the deployment modes below. Both reuse the same queue and worker. No mobile API contract or new migration is needed for web-service polling.
+
+### Existing Render web service (no separate worker service)
+
+Keep the existing web service, build command, and web start command (`node dist/main.js`). Add to its private Render environment:
+
+```env
+EXPO_PUSH_IN_WEB=true
+```
+
+Add `EXPO_ACCESS_TOKEN` to this web service only if Expo push access security is enabled. It already has the database/TLS settings. Push processing is off in the web service unless `EXPO_PUSH_IN_WEB` is exactly lowercase `true`; `EXPO_PUSH_ENABLED` does not enable web polling. Save and redeploy after pushing this code. Starting it processes existing eligible jobs, not just new messages.
+
+The web service registers the existing worker through `PushModule`. Nest starts its asynchronous polling after initialization; chat sends never await an Expo request. Logs show `Push worker polling enabled (EXPO_PUSH_IN_WEB)` or `Push worker disabled (EXPO_PUSH_IN_WEB)`. Shutdown hooks stop polling and wait for an in-flight batch.
+
+**Free hosting limit:** polling pauses while the Render web service sleeps or restarts. An inbound message request wakes the service; due jobs resume once it starts. Receipt checks may also be delayed. No immediate/background delivery guarantee is possible while the service is asleep; jobs older than 24 hours expire. Do not add artificial keepalive requests. Use a continuously running service/worker when timely delivery matters.
+
+### Separate worker alternative
 
 3. Create a separate **Render Background Worker**, from this same repository and branch. Render workers run continuously and accept no inbound HTTP traffic; see [Render Background Workers](https://render.com/docs/background-workers). A sleeping web service cannot substitute for this worker. Check the available worker plan in your workspace before provisioning.
 
@@ -124,7 +140,7 @@ Only active recipient registrations are captured; sender/unrelated devices are e
    | `EXPO_PUSH_ENABLED` | `true` to process jobs; otherwise polling is disabled |
    | `EXPO_ACCESS_TOKEN` | Optional **server-only** Expo access token if push access security is enabled |
 
-   The worker does not need JWT, SMTP, Google, or Supabase Storage credentials. The API does not need the Expo access token. `.env.example` defaults push sending to disabled. Deploying the API without an enabled worker leaves jobs queued.
+   The separate worker does not need JWT, SMTP, Google, or Supabase Storage credentials. The API needs the Expo access token only when web polling is enabled and Expo push access security requires it. `.env.example` defaults both polling modes to disabled. Deploying the API without either enabled mode leaves jobs queued. Prefer enabling just one mode; existing database row locks also protect claims across processes, but external transport remains at least once.
 
 5. Configure Expo project push credentials/access security and mobile permission/token registration. Perform a real-device acceptance test separately when authorized. None was sent as part of these backend tests.
 
@@ -139,6 +155,15 @@ Only active recipient registrations are captured; sender/unrelated devices are e
 - Terminal jobs are retained for diagnosis. Plan periodic deletion of old `complete`, `failed`, and `cancelled` jobs according to your retention policy; active jobs must remain. Expired registration rows can also be pruned by session age. No automatic retention deletion was added.
 - Chat retry enqueue is exactly once per message/registration. External transport is **at least once**: a crash or lost response after Expo accepts a push but before ticket persistence may cause a duplicate. Message-ID tags/collapse IDs and mobile deduplication help; they are not an exactly-once guarantee.
 
+### Verify a new message
+
+1. Send one new message to an account with a current session-bound Expo registration.
+2. Inspect `push_jobs` by `message_id` in Supabase without printing device tokens. Expect `pending` initially, then `receipt`, a nonempty `ticket_id`, and `attempts` at least one after polling.
+3. An accepted ticket only confirms Expo accepted the request. The worker first checks the receipt after 15 minutes; `complete` means a successful receipt. Inspect `last_error` for failures and keep credentials/token values private.
+4. If a due job stays `pending` with zero attempts, check the enabled-mode startup log, the relevant flag, database identity, and `Push worker database failure; queued jobs retained`. Database rollbacks can leave zero recorded attempts even after a request; do not manually reset/re-enqueue jobs to retry.
+
+Live check on November 13, 2026: the user sent message `6ea1f29e-4c2c-41f8-9478-2472542c5477`. Its job `f3e3cc30-cb61-4e34-8297-0e2d22f851a9` started as `pending` with zero attempts. Initializing the updated Nest web app with web polling enabled processed it to `receipt`, one attempt, a stored Expo ticket, and no error. The older eligible queued jobs were also processed. The local test app was closed afterward; no tokens or keys were printed. Final Expo receipt/device display was not verified in this check.
+
 ## Files to study
 
 | File | Responsibility |
@@ -150,7 +175,8 @@ Only active recipient registrations are captured; sender/unrelated devices are e
 | `src/auth/auth.service.ts`, `src/auth/guards/jwt-auth.guard.ts` | Expose verified session internally while preserving user/profile shape |
 | `src/push/expo-push.client.ts` | Fixed Expo URLs, server authorization, tickets/receipts, timeout |
 | `src/push/push.worker.ts` | Claim, revalidate, deliver, retry, invalidate devices |
-| `src/push/push-worker.module.ts`, `src/push-worker.main.ts` | Standalone worker entry point; never imported into web API |
+| `src/push/push.module.ts` | Device endpoints and opt-in web-service worker wiring |
+| `src/push/push-worker.module.ts`, `src/push-worker.main.ts` | Separate worker entry point using the same processing class |
 | `src/database/migrations/1794441600000-AddChatPush.ts` | Tables, indexes, RLS, revocation cleanup trigger |
 | `src/push/*.spec.ts`, `test/app.e2e-spec.ts` (`chat push`) | Mocked Expo unit tests and isolated PostgreSQL/HTTP integration checks |
 

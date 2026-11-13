@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type {
   OnApplicationBootstrap,
   OnApplicationShutdown,
@@ -21,6 +21,7 @@ import {
 export const MAX_PUSH_ATTEMPTS = 6;
 export const MAX_RECEIPT_CHECKS = 8;
 export const RECEIPT_DELAY_MS = 15 * 60_000;
+export const PUSH_WORKER_IN_WEB = Symbol('PUSH_WORKER_IN_WEB');
 export const pushBackoff = (attempt: number) =>
   Math.min(30_000 * 2 ** Math.max(0, attempt - 1), 30 * 60_000);
 
@@ -35,10 +36,16 @@ export class PushWorker
   constructor(
     @Inject(DataSource) private readonly database: DataSource,
     @Inject(ExpoPushClient) private readonly expo: ExpoPushClient,
+    @Optional() @Inject(PUSH_WORKER_IN_WEB) private readonly inWeb = false,
   ) {}
 
   onApplicationBootstrap() {
-    if (process.env.EXPO_PUSH_ENABLED !== 'true') return;
+    const flag = this.inWeb ? 'EXPO_PUSH_IN_WEB' : 'EXPO_PUSH_ENABLED';
+    if (process.env[flag] !== 'true') {
+      this.logger.log(`Push worker disabled (${flag})`);
+      return;
+    }
+    this.logger.log(`Push worker polling enabled (${flag})`);
     const tick = () => {
       if (this.running) return;
       this.running = this.runBatch()

@@ -10,6 +10,7 @@ import { BLOG_IMAGE_DIRECTORY } from './blogs/blog-image.store.js';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.enableShutdownHooks();
   // Valid 100,000-character Unicode posts can exceed Express's default JSON limit.
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('api/v1');
