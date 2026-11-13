@@ -460,6 +460,12 @@ export class AuthService {
   }
 
   async authenticate(accessToken: string): Promise<AuthUser> {
+    return (await this.authenticateSession(accessToken)).user;
+  }
+
+  async authenticateSession(
+    accessToken: string,
+  ): Promise<{ user: AuthUser; sessionId: string }> {
     let payload: { sub?: unknown; sid?: unknown };
     try {
       payload = await this.jwtService.verifyAsync(accessToken, {
@@ -492,7 +498,7 @@ export class AuthService {
       if (user.status !== UserStatus.ACTIVE) {
         throw new UnauthorizedException('Account is disabled');
       }
-      return user;
+      return { user, sessionId: session.id };
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw new UnauthorizedException('Account no longer exists');

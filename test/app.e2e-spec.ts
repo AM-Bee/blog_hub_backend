@@ -1,3 +1,12 @@
+import { getStorageToken, ThrottlerStorageService } from '@nestjs/throttler';
+import { AuthService } from '../src/auth/auth.service.js';
+import { REFRESH_COOKIE } from '../src/auth/auth.config.js';
+import type { InsertEvent } from 'typeorm';
+import { ChatService } from '../src/chat/chat.service.js';
+import { PushWorker } from '../src/push/push.worker.js';
+import { ExpoPushClient } from '../src/push/expo-push.client.js';
+import { PushDeviceEntity } from '../src/push/entities/push-device.entity.js';
+import { PushJobEntity } from '../src/push/entities/push-job.entity.js';
 import 'reflect-metadata';
 import dotenv from 'dotenv';
 import { randomUUID } from 'node:crypto';
@@ -137,6 +146,8 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           FaqCategoryEntity,
           ConversationEntity,
           MessageEntity,
+          PushDeviceEntity,
+          PushJobEntity,
         ],
       }).initialize();
       await database.runMigrations();
@@ -178,6 +189,13 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
       adminToken = (await login('admin@acceptance.example').expect(200)).body
         .accessToken;
     }, 120000);
+    beforeEach(() => {
+      // Isolate real rate limits between cases; limits still apply to every request within a case.
+      for (const storage of app.get<ThrottlerStorageService>(getStorageToken(), {
+        each: true,
+      }))
+        storage.onApplicationShutdown();
+    });
     afterAll(async () => {
       sockets.forEach((socket) => socket.disconnect());
       await app?.close();
@@ -2063,6 +2081,365 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         .expect(200);
       expect(profile.body.role).toBe('admin');
     }, 60000);
+
+    describe('chat push', () => {
+      let sender: UserEntity;
+      let recipient: UserEntity;
+      let other: UserEntity;
+      let senderToken: string;
+      let recipientToken: string;
+      let otherToken: string;
+      let conversationId: string;
+      const devices = () => database.getRepository(PushDeviceEntity);
+      const jobs = () => database.getRepository(PushJobEntity);
+      const register = (
+        token: string,
+        deviceId: string,
+        expoPushToken: string,
+      ) =>
+        request(app.getHttpServer())
+          .put(`/api/v1/me/push-devices/${deviceId}`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ expoPushToken });
+      const unregister = (token: string, deviceId: string) =>
+        request(app.getHttpServer())
+          .delete(`/api/v1/me/push-devices/${deviceId}`)
+          .set('Authorization', `Bearer ${token}`);
+      const send = (clientMessageId = randomUUID()) =>
+        app.get(ChatService).saveMessage(sender.id, {
+          conversationId,
+          clientMessageId,
+          content: 'PRIVATE_MESSAGE_MUST_NOT_APPEAR_IN_PUSH',
+        });
+      const due = () =>
+        jobs()
+          .createQueryBuilder()
+          .update()
+          .set({ nextAttemptAt: new Date(0) })
+          .execute();
+      beforeAll(async () => {
+        const users: UserEntity[] = [];
+        const tokens: string[] = [];
+        for (const name of ['pushsender', 'pushrecipient', 'pushother']) {
+          const user = await database.getRepository(UserEntity).save({
+            email: `${name}@acceptance.example`,
+            displayName: name,
+            passwordHash: await bcrypt.hash('Password123!', 4),
+          });
+          users.push(user);
+          // Create real sessions without consuming the unrelated login route's per-IP test budget.
+          tokens.push(
+            (await app.get(AuthService).login({
+              email: user.email, password: 'Password123!',
+            })).accessToken,
+          );
+        }
+        [sender, recipient, other] = users;
+        [senderToken, recipientToken, otherToken] = tokens;
+        conversationId = (
+          await app
+            .get(ChatService)
+            .findOrCreate(sender.id, { recipientId: recipient.id })
+        ).id;
+      }, 120000);
+      beforeEach(async () => {
+        // These users belong only to this disposable schema; cascading jobs prevents cross-case deliveries.
+        await devices()
+          .createQueryBuilder()
+          .delete()
+          .where('user_id IN (:...ids)', {
+            ids: [sender.id, recipient.id, other.id],
+          })
+          .execute();
+        vi.stubGlobal(
+          'fetch',
+          vi
+            .fn()
+            .mockRejectedValue(new Error('Unmocked Expo request forbidden')),
+        );
+      });
+      afterEach(() => vi.unstubAllGlobals());
+
+      it('authenticates registrations, keeps multiple devices, and enqueues/delivers once per recipient device', async () => {
+        const d1 = randomUUID(),
+          d2 = randomUUID();
+        await request(app.getHttpServer())
+          .put(`/api/v1/me/push-devices/${d1}`)
+          .send({ expoPushToken: 'ExpoPushToken[recipient_one]' })
+          .expect(401);
+        await register(recipientToken, 'invalid', 'ExpoPushToken[x]').expect(
+          400,
+        );
+        await register(recipientToken, d1, 'invalid').expect(400);
+        await request(app.getHttpServer())
+          .put(`/api/v1/me/push-devices/${d1}`)
+          .set('Authorization', `Bearer ${recipientToken}`)
+          .send({
+            expoPushToken: 'ExpoPushToken[recipient_one]',
+            userId: sender.id,
+          })
+          .expect(400);
+        expect(
+          (
+            await register(
+              recipientToken,
+              d1,
+              'ExpoPushToken[recipient_one]',
+            ).expect(200)
+          ).body,
+        ).toEqual({ deviceId: d1, registered: true });
+        const first = await devices().findOneByOrFail({ deviceId: d1 });
+        await register(
+          recipientToken,
+          d1.toUpperCase(),
+          'ExpoPushToken[recipient_one]',
+        ).expect(200);
+        expect((await devices().findOneByOrFail({ deviceId: d1 })).id).toBe(
+          first.id,
+        );
+        await register(
+          recipientToken,
+          d2,
+          'ExponentPushToken[recipient_two]',
+        ).expect(200);
+        await register(
+          senderToken,
+          randomUUID(),
+          'ExpoPushToken[sender]',
+        ).expect(200);
+        await register(
+          otherToken,
+          randomUUID(),
+          'ExpoPushToken[unrelated]',
+        ).expect(200);
+        const clientId = randomUUID();
+        const results = await Promise.all([send(clientId), send(clientId)]);
+        expect(results.filter((result) => result.created)).toHaveLength(1);
+        expect(await jobs().count()).toBe(2);
+        const registrations = await devices().findBy({ userId: recipient.id });
+        expect(
+          (await jobs().find()).map((job) => job.registrationId).sort(),
+        ).toEqual(registrations.map((d) => d.id).sort());
+        const fetch = vi
+          .fn()
+          .mockImplementation((_url: string, options: RequestInit) => {
+            const body = JSON.parse(options.body as string);
+            if (Array.isArray(body))
+              return Promise.resolve(
+                Response.json({
+                  data: [{ status: 'ok', id: `ticket_${body[0].to}` }],
+                }),
+              );
+            return Promise.resolve(
+              Response.json({ data: { [body.ids[0]]: { status: 'ok' } } }),
+            );
+          });
+        vi.stubGlobal('fetch', fetch);
+        const worker = new PushWorker(database, new ExpoPushClient());
+        await worker.processOne();
+        await worker.processOne();
+        expect(fetch).toHaveBeenCalledTimes(2);
+        const payloads = fetch.mock.calls.map(
+          ([, options]) => JSON.parse(options.body as string)[0],
+        );
+        expect(payloads.map((p) => p.to).sort()).toEqual(
+          [
+            'ExpoPushToken[recipient_one]',
+            'ExponentPushToken[recipient_two]',
+          ].sort(),
+        );
+        expect(payloads[0]).toMatchObject({
+          body: `New message from ${sender.displayName}`,
+          data: {
+            type: 'chat_message',
+            conversationId,
+            messageId: results[0].message.id,
+          },
+        });
+        expect(JSON.stringify(payloads)).not.toContain('PRIVATE_MESSAGE');
+        expect(JSON.stringify(await jobs().find())).not.toContain(
+          'PRIVATE_MESSAGE',
+        );
+        expect(await worker.processOne()).toBe(false);
+        await due();
+        await worker.processOne();
+        await worker.processOne();
+        expect(
+          (await jobs().find()).every((job) => job.status === 'complete'),
+        ).toBe(true);
+        await send(clientId);
+        expect(await jobs().count()).toBe(2);
+      }, 180000);
+
+      it('transfers devices and tokens without old deliveries, scopes unregister, and cleans up on logout', async () => {
+        const d1 = randomUUID(),
+          d2 = randomUUID(),
+          expo = 'ExpoPushToken[shared_device]';
+        await register(recipientToken, d1, expo).expect(200);
+        await register(
+          recipientToken,
+          d2,
+          'ExpoPushToken[second_device]',
+        ).expect(200);
+        await send();
+        expect(await jobs().count()).toBe(2);
+        await unregister(recipientToken, d2).expect(204);
+        await unregister(recipientToken, d2).expect(204);
+        expect(await jobs().count()).toBe(1);
+        const old = (await devices().findOneByOrFail({ deviceId: d1 })).id;
+        await register(otherToken, d1, expo).expect(200);
+        expect(await jobs().count()).toBe(0);
+        const current = await devices().findOneByOrFail({ deviceId: d1 });
+        expect(current.userId).toBe(other.id);
+        expect(current.id).not.toBe(old);
+        await unregister(recipientToken, d1).expect(204);
+        expect(await devices().countBy({ deviceId: d1 })).toBe(1);
+        const newInstallation = randomUUID();
+        await Promise.all([
+          register(recipientToken, newInstallation, expo).expect(200),
+          register(recipientToken, newInstallation, expo).expect(200),
+        ]);
+        expect(await devices().countBy({ expoPushToken: expo })).toBe(1);
+        expect(await devices().countBy({ deviceId: d1 })).toBe(0);
+        const fresh = await app.get(AuthService).login({
+          email: recipient.email, password: 'Password123!',
+        });
+        const freshToken = fresh.accessToken;
+        await register(freshToken, newInstallation, expo).expect(200);
+        const freshReg = await devices().findOneByOrFail({
+          deviceId: newInstallation,
+        });
+        await unregister(recipientToken, newInstallation).expect(204);
+        expect(await devices().countBy({ id: freshReg.id })).toBe(1);
+        await send();
+        expect(await jobs().count()).toBe(1);
+        const cookies = `${REFRESH_COOKIE}=${fresh.refreshToken}`;
+        await request(app.getHttpServer())
+          .post('/api/v1/auth/logout')
+          .set('Origin', origin)
+          .set('Cookie', cookies)
+          .expect(200);
+        expect(await devices().countBy({ id: freshReg.id })).toBe(0);
+        expect(await jobs().count()).toBe(0);
+        await send(); // An unregistered recipient does not gain a retroactive delivery.
+        expect(await jobs().count()).toBe(0);
+        await register(freshToken, newInstallation, expo).expect(401);
+        const worker = new PushWorker(database, new ExpoPushClient());
+        expect(await worker.processOne()).toBe(false);
+        expect(fetch).not.toHaveBeenCalled();
+        expect(
+          (
+            await request(app.getHttpServer())
+              .get('/api/v1/auth/me')
+              .set('Authorization', `Bearer ${senderToken}`)
+              .expect(200)
+          ).body,
+        ).not.toHaveProperty('sessionId');
+      }, 180000);
+
+      it('commits the outbox atomically, tolerates Expo failures, claims jobs once, and removes invalid devices', async () => {
+        const deviceId = randomUUID();
+        await register(
+          recipientToken,
+          deviceId,
+          'ExpoPushToken[atomic]',
+        ).expect(200);
+        const clientId = randomUUID();
+        const subscriber = {
+          beforeInsert(event: InsertEvent<PushJobEntity>) {
+            if (event.metadata.target === PushJobEntity)
+              throw new Error('outbox insert failed');
+          },
+        };
+        database.subscribers.push(subscriber);
+        try {
+          await expect(send(clientId)).rejects.toThrow('outbox insert failed');
+        } finally {
+          database.subscribers.splice(
+            database.subscribers.indexOf(subscriber),
+            1,
+          );
+        }
+        expect(
+          await database
+            .getRepository(MessageEntity)
+            .countBy({ senderId: sender.id, clientMessageId: clientId }),
+        ).toBe(0);
+        expect(await jobs().count()).toBe(0);
+        expect((await send(clientId)).created).toBe(true);
+        const worker = new PushWorker(database, new ExpoPushClient());
+        vi.stubGlobal(
+          'fetch',
+          vi.fn().mockResolvedValue(new Response('', { status: 503 })),
+        );
+        await worker.processOne();
+        expect((await jobs().find())[0]).toMatchObject({
+          status: 'pending',
+          attempts: 1,
+        });
+        expect((await send(clientId)).created).toBe(false);
+        await due();
+        const fetch = vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(
+              Response.json({
+                data: [{ status: 'ok', id: 'concurrent_ticket' }],
+              }),
+            ),
+          );
+        vi.stubGlobal('fetch', fetch);
+        const claims = await Promise.all([
+          worker.processOne(),
+          new PushWorker(database, new ExpoPushClient()).processOne(),
+        ]);
+        expect(claims.filter(Boolean)).toHaveLength(1);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        await due();
+        vi.stubGlobal(
+          'fetch',
+          vi
+            .fn()
+            .mockResolvedValue(
+              Response.json({
+                data: {
+                  concurrent_ticket: {
+                    status: 'error',
+                    details: { error: 'DeviceNotRegistered' },
+                  },
+                },
+              }),
+            ),
+        );
+        await worker.processOne();
+        expect(await devices().countBy({ deviceId })).toBe(0);
+        expect(await jobs().count()).toBe(0);
+        await register(
+          recipientToken,
+          deviceId,
+          'ExpoPushToken[atomic]',
+        ).expect(200);
+        await send();
+        vi.stubGlobal(
+          'fetch',
+          vi
+            .fn()
+            .mockResolvedValue(
+              Response.json({
+                data: [
+                  {
+                    status: 'error',
+                    details: { error: 'DeviceNotRegistered' },
+                  },
+                ],
+              }),
+            ),
+        );
+        await worker.processOne();
+        expect(await devices().countBy({ deviceId })).toBe(0);
+        expect(await jobs().count()).toBe(0);
+      }, 180000);
+    });
 
     it('runs private chat through AppModule and invalidates existing socket credentials on password change', async () => {
       bobToken = (await login(bob.email).expect(200)).body.accessToken;

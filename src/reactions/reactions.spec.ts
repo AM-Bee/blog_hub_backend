@@ -29,12 +29,12 @@ function context(authorization?: string) {
   return { request, execution };
 }
 it('allows anonymous summary reads only when the Authorization header is missing', async () => {
-  const authenticate = vi.fn();
+  const authenticateSession = vi.fn();
   const guard = new OptionalJwtAuthGuard({
-    authenticate,
+    authenticateSession,
   } as unknown as AuthService);
   expect(await guard.canActivate(context().execution)).toBe(true);
-  expect(authenticate).not.toHaveBeenCalled();
+  expect(authenticateSession).not.toHaveBeenCalled();
   for (const header of ['', 'Basic abc', 'Bearer ']) {
     await expect(
       guard.canActivate(context(header).execution),
@@ -42,12 +42,12 @@ it('allows anonymous summary reads only when the Authorization header is missing
   }
 });
 it('uses existing auth for supplied tokens and never silently ignores invalid credentials', async () => {
-  const authenticate = vi
+  const authenticateSession = vi
     .fn()
-    .mockResolvedValueOnce({ id: 'user' })
+    .mockResolvedValueOnce({ user: { id: 'user' }, sessionId: 'session' })
     .mockRejectedValueOnce(new Error('Expired session'));
   const guard = new OptionalJwtAuthGuard({
-    authenticate,
+    authenticateSession,
   } as unknown as AuthService);
   const valid = context('Bearer token');
   expect(await guard.canActivate(valid.execution)).toBe(true);

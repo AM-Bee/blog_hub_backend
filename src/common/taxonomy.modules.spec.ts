@@ -1,3 +1,5 @@
+import { PushDeviceEntity } from '../push/entities/push-device.entity.js';
+import { PushJobEntity } from '../push/entities/push-job.entity.js';
 import { Permission } from '../users/permissions.js';
 import { ChatModule } from '../chat/chat.module.js';
 import { ConversationEntity } from '../chat/entities/conversation.entity.js';
@@ -56,6 +58,8 @@ const dataSource = new MetadataDataSource({
     NotificationEntity,
     ConversationEntity,
     MessageEntity,
+    PushDeviceEntity,
+    PushJobEntity,
   ],
 });
 @Global()

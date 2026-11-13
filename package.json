@@ -24,7 +24,8 @@
     "seed": "tsc -p tsconfig.build.json && node dist/seed.js",
     "migration:run": "tsc -p tsconfig.build.json && node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
     "seed:faq": "tsc -p tsconfig.build.json && node dist/faq/seed-faqs.js",
-    "admin:make-super": "node scripts/make-super-admin.mjs"
+    "admin:make-super": "node scripts/make-super-admin.mjs",
+    "start:push-worker": "node dist/push-worker.main.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

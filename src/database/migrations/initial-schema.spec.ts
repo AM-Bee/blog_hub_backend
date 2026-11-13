@@ -1,3 +1,5 @@
+import { PushDeviceEntity } from '../../push/entities/push-device.entity.js';
+import { PushJobEntity } from '../../push/entities/push-job.entity.js';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -73,6 +75,8 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           NotificationEntity,
           ConversationEntity,
           MessageEntity,
+          PushDeviceEntity,
+          PushJobEntity,
           BlogCommentEntity,
           ReactionEntity,
           FaqEntity,
@@ -85,7 +89,7 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
         await connection.query(`CREATE SCHEMA "${schema}"`);
         await source.initialize();
         const applied = await source.runMigrations();
-        expect(applied).toHaveLength(12);
+        expect(applied).toHaveLength(13);
         const tables: { tablename: string }[] = await source.query(
           'SELECT tablename FROM pg_tables WHERE schemaname = $1',
           [schema],

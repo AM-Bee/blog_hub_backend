@@ -12,6 +12,7 @@ import { AdminUsersModule } from './admin-users/admin-users.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { CommentsModule } from './comments/comments.module.js';
 import { FaqModule } from './faq/faq.module.js';
+import { PushModule } from './push/push.module.js';
 import { ChatModule } from './chat/chat.module.js';
 
 @Module({
@@ -26,6 +27,7 @@ import { ChatModule } from './chat/chat.module.js';
     AdminUsersModule,
     NotificationsModule,
     ChatModule,
+    PushModule,
     CommentsModule,
     FaqModule,
   ],

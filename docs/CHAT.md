@@ -4,11 +4,11 @@ Message deletion setup and event contract: [CHAT_MESSAGE_DELETION.md](CHAT_MESSA
 
 Study the source file by file and function by function: [CHAT_STUDY_GUIDE.md](CHAT_STUDY_GUIDE.md).
 
-All four backend phases are complete (Phase 4 final review: [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md)): database, protected REST API, and authenticated Socket.IO messaging. ChatModule reuses the existing JWT/session authentication. No frontend code, Redis, queues, or additional authentication system is included.
+All four backend phases are complete (Phase 4 final review: [CHAT_PHASE4_REVIEW.md](CHAT_PHASE4_REVIEW.md)): database, protected REST API, and authenticated Socket.IO messaging. ChatModule reuses the existing JWT/session authentication. No frontend code, Redis, or additional authentication system is included. Mobile Expo delivery now uses a PostgreSQL outbox and a separate worker: [mobile push handoff](MOBILE_CHAT_PUSH_HANDOFF.md).
 
 ## Existing backend integration
 
-- `src/auth/guards/jwt-auth.guard.ts` extracts the application Bearer JWT. `AuthService.authenticate()` verifies its signature/issuer/audience/expiry, checks the database refresh session, and loads the active application user. Access tokens last one hour; refresh sessions have a seven-day absolute lifetime. Chat REST routes reuse this authentication and user identity, including Google-linked users.
+- `src/auth/guards/jwt-auth.guard.ts` extracts the application Bearer JWT. `AuthService.authenticateSession()` verifies its signature/issuer/audience/expiry, checks the database refresh session, and loads the active application user. Access tokens last one hour; refresh sessions have a seven-day absolute lifetime. Chat REST routes reuse this authentication and user identity, including Google-linked users.
 - The existing user table/entity is `users` / `src/users/entities/user.entity.ts`. It uses UUID primary keys, so chat IDs and participant IDs are UUIDs too. Integer IDs in initial examples must be replaced with real UUIDs.
 - `src/database/database.module.ts` configures PostgreSQL with ConfigService and the existing `DB_*` settings. `DB_PORT` falls back to 5433; set it explicitly in `.env`.
 - `src/database/data-source.ts` and `npm run migration:run` provide the existing incremental migration path.

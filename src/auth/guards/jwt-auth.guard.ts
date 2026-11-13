@@ -6,6 +6,7 @@ import type { AuthUser } from '../interfaces/auth.interface.js';
 
 export interface AuthenticatedRequest extends Request {
   user: AuthUser;
+  sessionId: string;
 }
 
 @Injectable()
@@ -20,7 +21,9 @@ export class JwtAuthGuard implements CanActivate {
     if (!match) {
       throw new UnauthorizedException('Bearer access token is required');
     }
-    request.user = await this.authService.authenticate(match[1]);
+    const authenticated = await this.authService.authenticateSession(match[1]);
+    request.user = authenticated.user;
+    request.sessionId = authenticated.sessionId;
     return true;
   }
 }

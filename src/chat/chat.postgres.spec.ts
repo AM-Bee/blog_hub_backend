@@ -1,3 +1,5 @@
+import { PushDeviceEntity } from '../push/entities/push-device.entity.js';
+import { PushJobEntity } from '../push/entities/push-job.entity.js';
 import 'reflect-metadata';
 import dotenv from 'dotenv';
 import { randomUUID } from 'node:crypto';
@@ -28,7 +30,7 @@ import { UserStatus } from '../users/enums/user-status.enum.js';
 import { RefreshSessionEntity } from '../auth/entities/refresh-session.entity.js';
 import { RefreshTokenEntity } from '../auth/entities/refresh-token.entity.js';
 import { AuthAccountEntity } from '../auth/entities/auth-account.entity.js';
-import { AddPrivateChat1792584000000 } from '../database/migrations/1792584000000-AddPrivateChat.js';
+import migrationSource from '../database/data-source.js';
 import { AddMessageDeletion1793145600000 } from '../database/migrations/1793145600000-AddMessageDeletion.js';
 
 const schema = `chat_rest_test_${randomUUID().replaceAll('-', '')}`;
@@ -160,23 +162,14 @@ describe.runIf(process.env.BLOGHUB_RUN_DB_TESTS === '1')(
           AuthAccountEntity,
           ConversationEntity,
           MessageEntity,
+          PushDeviceEntity,
+          PushJobEntity,
         ],
-        synchronize: true,
+        synchronize: false,
+        migrations: migrationSource.options.migrations,
+        extra: { options: `-c search_path=${schema},public` },
       }).initialize();
-      const runner = database.createQueryRunner();
-      await runner.connect();
-      await runner.startTransaction();
-      try {
-        await runner.query(`SET LOCAL search_path TO "${schema}", public`);
-        await new AddPrivateChat1792584000000().up(runner);
-        await new AddMessageDeletion1793145600000().up(runner);
-        await runner.commitTransaction();
-      } catch (error) {
-        await runner.rollbackTransaction();
-        throw error;
-      } finally {
-        await runner.release();
-      }
+      await database.runMigrations();
       const passwordHash = await bcrypt.hash('Password123!', 4);
       const user = (displayName: string, role = UserRole.AUTHOR) =>
         database.getRepository(UserEntity).save({

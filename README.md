@@ -35,6 +35,8 @@ BlogHub authentication configuration and API examples are documented in [docs/AU
 
 Google login and explicit account linking are documented in [docs/GOOGLE_AUTH.md](docs/GOOGLE_AUTH.md). The backend is implemented; frontend Auth.js integration is the next stage.
 
+Private mobile chat push registration, Expo delivery, and Render worker setup are documented in [docs/MOBILE_CHAT_PUSH_HANDOFF.md](docs/MOBILE_CHAT_PUSH_HANDOFF.md). Apply its migration before starting this version.
+
 Self-service profile editing and password changes are documented in [docs/ACCOUNT.md](docs/ACCOUNT.md).
 
 Category/tag permissions and EchoAPI examples are documented in [docs/TAXONOMY.md](docs/TAXONOMY.md).

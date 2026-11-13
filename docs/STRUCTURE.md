@@ -103,3 +103,7 @@ BLOGHUB_RUN_DB_TESTS=1 npm test -- src/users/account.postgres.spec.ts src/admin-
 ```
 
 Database regression tests use unique temporary schemas and mocked email delivery. The unit/module suite also checks feature dependency injection and Swagger generation without a live database.
+
+## Mobile chat push
+
+`src/push/` owns session-bound Expo registrations and the PostgreSQL push outbox worker. `src/push-worker.main.ts` is a standalone background process; the web API only enqueues jobs. Contracts, migration, and Render setup: [MOBILE_CHAT_PUSH_HANDOFF.md](MOBILE_CHAT_PUSH_HANDOFF.md).

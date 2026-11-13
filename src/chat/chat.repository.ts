@@ -1,3 +1,6 @@
+import { PushDeviceEntity } from '../push/entities/push-device.entity.js';
+import { PushJobEntity } from '../push/entities/push-job.entity.js';
+import { UserStatus } from '../users/enums/user-status.enum.js';
 import {
   BadRequestException,
   ConflictException,
@@ -320,6 +323,37 @@ export class ChatRepository {
           ? conversation.user2Id
           : conversation.user1Id;
 
+      if (created) {
+        const devices = await manager
+          .getRepository(PushDeviceEntity)
+          .createQueryBuilder('device')
+          .innerJoin(
+            'device.session',
+            'session',
+            'session.userId = device.userId AND session.revokedAt IS NULL AND session.expiresAt > CURRENT_TIMESTAMP',
+          )
+          .innerJoin('device.user', 'recipient', 'recipient.status = :status', {
+            status: UserStatus.ACTIVE,
+          })
+          .where('device.userId = :recipientId', { recipientId })
+          .orderBy('device.id', 'ASC')
+          // Keep registrations alive until their outbox rows commit, without blocking worker reads.
+          .setLock('for_key_share', undefined, ['device'])
+          .getMany();
+        if (devices.length) {
+          const sender = await manager.findOneByOrFail(UserEntity, {
+            id: senderId,
+          });
+          await manager.insert(
+            PushJobEntity,
+            devices.map((device) => ({
+              messageId: message.id,
+              registrationId: device.id,
+              senderDisplayName: sender.displayName,
+            })),
+          );
+        }
+      }
       return {
         message: this.messageResponse(message),
         recipientId,
